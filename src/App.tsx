@@ -14,14 +14,16 @@ import {
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   setDoc,
+  where,
 } from "firebase/firestore";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -68,6 +70,7 @@ export default function App() {
   const [queryText, setQueryText] = useState("");
   const [category, setCategory] = useState("All items");
   const [savedIds, setSavedIds] = useState<string[]>([]);
+  const savingRef = useRef<Set<string>>(new Set());
   const [selected, setSelected] = useState<Listing | null>(null);
   const [user, setUser] = useState<User | null>(auth?.currentUser || null);
   const [authOpen, setAuthOpen] = useState(false);
@@ -90,7 +93,10 @@ export default function App() {
                 : "Could not create profile.",
             ),
           );
-      else setProfileReady(false);
+      else {
+        setProfileReady(false);
+        setSavedIds([]);
+      }
     };
     let unsubscribe: () => void = () => undefined;
     setPersistence(firebaseAuth, browserLocalPersistence)
@@ -131,6 +137,29 @@ export default function App() {
     );
   }, []);
 
+  useEffect(() => {
+    if (!db || !user) {
+      setSavedIds([]);
+      return;
+    }
+    const savedQuery = query(
+      collection(db, "savedListings"),
+      where("userId", "==", user.uid),
+    );
+    return onSnapshot(
+      savedQuery,
+      (snapshot) => {
+        const ids = snapshot.docs
+          .map((entry) => entry.data().listingId as string)
+          .filter(Boolean);
+        setSavedIds(ids);
+      },
+      (error) => {
+        console.error("Could not load saved listings:", error);
+      },
+    );
+  }, [user]);
+
   const filteredItems = useMemo(
     () =>
       items.filter(
@@ -144,12 +173,48 @@ export default function App() {
     () => (user ? items.filter((item) => item.sellerId === user.uid) : []),
     [items, user],
   );
-  const toggleSaved = (id: string) =>
+  const toggleSaved = async (id: string) => {
+    if (!user) {
+      setAuthOpen(true);
+      return;
+    }
+    if (savingRef.current.has(id)) {
+      return;
+    }
+    savingRef.current.add(id);
+
+    const isSaved = savedIds.includes(id);
+    const saveDocId = `${user.uid}_${id}`;
+
     setSavedIds((current) =>
-      current.includes(id)
-        ? current.filter((value) => value !== id)
-        : [...current, id],
+      isSaved ? current.filter((value) => value !== id) : [...current, id],
     );
+
+    if (!db) {
+      savingRef.current.delete(id);
+      return;
+    }
+
+    try {
+      const saveRef = doc(db, "savedListings", saveDocId);
+      if (isSaved) {
+        await deleteDoc(saveRef);
+      } else {
+        await setDoc(saveRef, {
+          userId: user.uid,
+          listingId: id,
+          createdAt: serverTimestamp(),
+        });
+      }
+    } catch (error) {
+      console.error("Could not update saved listing:", error);
+      setSavedIds((current) =>
+        isSaved ? [...current, id] : current.filter((value) => value !== id),
+      );
+    } finally {
+      savingRef.current.delete(id);
+    }
+  };
   const signInWithGoogle = async () => {
     if (!auth) return;
     setAuthError("");
@@ -256,7 +321,13 @@ export default function App() {
           onMyListings={() => (user ? setTab("MyListings") : setAuthOpen(true))}
           onSaved={() => setTab("Saved")}
           onSignIn={() => setAuthOpen(true)}
-          onSignOut={() => auth && signOut(auth)}
+          onSignOut={async () => {
+            if (auth) {
+              await signOut(auth);
+            }
+            setUser(null);
+            setSavedIds([]);
+          }}
         />
       )}
       <BottomNav
