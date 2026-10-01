@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Campus Marketplace
 
 Expo SDK 57 React Native app for buying and selling items within a campus community.
@@ -39,3 +40,16 @@ The client Firebase configuration is intentionally public. Access control belong
 - Publish a basic listing through the Sell flow.
 - Sign in anonymously for a frictionless student account.
 - View Saved, Messages, and Profile pages.
+=======
+# campus-marketplace
+
+A platform that allows university students to buy and sell products within their campus community through web and mobile applications.
+
+# Project Purpose 
+
+To provide a simple and convenient platform for university students to buy and sell products within their campus community.
+
+# Project Status 
+
+Currently under development.
+>>>>>>> 5bc6a834e161b3512d248a8d049fcf16b435b86c
