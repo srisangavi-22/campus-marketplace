@@ -1,4 +1,5 @@
 import { StatusBar } from "expo-status-bar";
+import * as ImagePicker from "expo-image-picker";
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
@@ -20,9 +21,11 @@ import {
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Modal,
   Platform,
   Pressable,
@@ -39,7 +42,7 @@ import { MyListingsPage } from "./pages/MyListingsPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { SavedPage } from "./pages/SavedPage";
 import { seedListings } from "./data";
-import { auth, db, firebaseConfigured } from "./firebase";
+import { auth, db, firebaseConfigured, storage } from "./firebase";
 import { Tab } from "./types";
 import {
   AppUser,
@@ -77,6 +80,34 @@ async function registerUser(user: AppUser) {
     },
     { merge: true },
   );
+}
+
+async function uploadProfilePhoto(
+  uid: string,
+  uri: string,
+  contentType?: string | null,
+): Promise<string> {
+  if (!storage) {
+    throw new Error("Firebase Storage is not configured.");
+  }
+
+  const response = await fetch(uri);
+  if (!response.ok) {
+    throw new Error("Could not read the selected profile photo.");
+  }
+
+  const image = await response.blob();
+  const imageType = contentType || image.type || "image/jpeg";
+  if (!imageType.startsWith("image/")) {
+    throw new Error("The selected file is not a supported image.");
+  }
+  if (image.size >= 5 * 1024 * 1024) {
+    throw new Error("Profile photos must be smaller than 5 MB.");
+  }
+
+  const photoRef = ref(storage, `profilePhotos/${uid}`);
+  const uploaded = await uploadBytes(photoRef, image, { contentType: imageType });
+  return getDownloadURL(uploaded.ref);
 }
 
 async function loadSavedIdsForUser(uid: string) {
@@ -144,8 +175,8 @@ async function saveProfileRemote(
 }
 
 export default function App() {
-  // Default to Profile tab to focus on Authentication of the Profile
-  const [tab, setTab] = useState<Tab>("Profile");
+  // Let users browse listings before choosing whether to sign in.
+  const [tab, setTab] = useState<Tab>("Explore");
 
   // Initialize user from existing Firebase auth or local stored session
   const [user, setUser] = useState<AppUser | null>(() => {
@@ -214,6 +245,7 @@ export default function App() {
         setSavedIds([]);
         saveStoredSession(null);
         setProfileReady(false);
+        setTab("Explore");
         return;
       }
 
@@ -294,6 +326,7 @@ export default function App() {
     password: string,
     name: string,
     phone?: string,
+    photo?: { uri: string; dataUrl?: string; contentType?: string | null },
   ) => {
     // Client-side input validation
     const validationError = validateAuthInput(mode, email, password, name);
@@ -315,9 +348,25 @@ export default function App() {
             password,
           );
 
+          let photoURL: string | null = null;
+          let photoUploadError: unknown;
+          if (photo) {
+            try {
+              photoURL = await uploadProfilePhoto(
+                credential.user.uid,
+                photo.uri,
+                photo.contentType,
+              );
+            } catch (error) {
+              logAuthError("Uploading profile photo", error);
+              photoUploadError = error;
+            }
+          }
+
           const created = toAppUser(credential.user, {
             displayName: name.trim(),
             phoneNumber: phone?.trim() || null,
+            photoURL,
           });
           setUser(created);
           setMeetup(created.meetupPreference || "Student Center");
@@ -328,6 +377,7 @@ export default function App() {
             try {
               await updateProfile(credential.user, {
                 displayName: name.trim(),
+                photoURL,
               });
             } catch (error) {
               logAuthError("Updating new account profile", error);
@@ -344,10 +394,13 @@ export default function App() {
             setProfileReady(false);
           }
 
-          setAuthOpen(false);
-          if (profileError) {
-            setAuthError(friendlyProfileSaveError(profileError));
-          }
+          const signupNotice = photoUploadError
+            ? "Your account was created, but the profile photo could not be uploaded. Check that Firebase Storage is enabled and storage.rules are deployed."
+            : profileError
+              ? friendlyProfileSaveError(profileError)
+              : "";
+          setAuthError(signupNotice);
+          setAuthOpen(Boolean(signupNotice));
         } else {
           const credential = await signInWithEmailAndPassword(
             auth,
@@ -379,7 +432,7 @@ export default function App() {
             email: email.trim(),
             displayName: name.trim(),
             phoneNumber: phone?.trim() || null,
-            photoURL: null,
+            photoURL: photo?.dataUrl || photo?.uri || null,
             campus: "North Campus",
             meetupPreference: "Student Center",
             createdAt: new Date().toLocaleDateString("en-US", {
@@ -465,6 +518,7 @@ export default function App() {
     saveStoredSession(null);
     setProfileReady(false);
     setMeetup("North Campus");
+    setTab("Explore");
   };
 
   const handleUpdateProfile = async (
@@ -564,6 +618,9 @@ export default function App() {
           category="All items"
           savedIds={savedIds}
           userPhotoURL={user?.photoURL}
+          userDisplayName={
+            user?.displayName || user?.email?.split("@")[0] || null
+          }
           onQueryChange={() => undefined}
           onCategoryChange={() => undefined}
           onSave={handleSaveListing}
@@ -610,7 +667,7 @@ export default function App() {
         demoMode={!auth}
         onNavigateHome={() => {
           closeAuth();
-          setTab("Profile");
+          setTab("Explore");
         }}
       />
     </SafeAreaView>
@@ -710,6 +767,7 @@ function AuthModal({
     password: string,
     name: string,
     phone?: string,
+    photo?: { uri: string; dataUrl?: string; contentType?: string | null },
   ) => Promise<void>;
   onReset: (email: string) => Promise<boolean>;
   onGuest: () => void;
@@ -724,6 +782,10 @@ function AuthModal({
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [notice, setNotice] = useState("");
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | undefined>();
+  const [photoContentType, setPhotoContentType] = useState<string | null>();
+  const [photoError, setPhotoError] = useState("");
 
   useEffect(() => {
     if (visible) {
@@ -731,6 +793,10 @@ function AuthModal({
     } else {
       setPassword("");
       setNotice("");
+      setPhotoError("");
+      setPhotoUri(null);
+      setPhotoDataUrl(undefined);
+      setPhotoContentType(null);
     }
   }, [visible, initialMode]);
 
@@ -738,7 +804,49 @@ function AuthModal({
 
   const handleModeSwitch = (targetMode: "signIn" | "signUp") => {
     setNotice("");
+    setPhotoError("");
+    if (targetMode === "signIn") {
+      setPhotoUri(null);
+      setPhotoDataUrl(undefined);
+      setPhotoContentType(null);
+    }
     setMode(targetMode);
+  };
+
+  const handleChoosePhoto = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (!result.canceled) {
+        const asset = result.assets[0];
+        if (asset.fileSize && asset.fileSize >= 5 * 1024 * 1024) {
+          setPhotoError("Profile photos must be smaller than 5 MB.");
+          return;
+        }
+
+        setPhotoUri(asset.uri);
+        setPhotoContentType(asset.mimeType || null);
+        setPhotoDataUrl(
+          asset.base64
+            ? `data:${asset.mimeType || "image/jpeg"};base64,${asset.base64}`
+            : undefined,
+        );
+        setNotice("");
+        setPhotoError("");
+      }
+    } catch (error) {
+      setPhotoError(
+        error instanceof Error
+          ? `Unable to select a profile photo: ${error.message}`
+          : "Unable to select a profile photo. Please try again.",
+      );
+    }
   };
 
   const handleFillDemo = () => {
@@ -813,6 +921,13 @@ function AuthModal({
               </View>
             ) : null}
 
+            {photoError ? (
+              <View style={styles.authErrorContainer}>
+                <Text style={styles.authErrorIcon}>⚠️</Text>
+                <Text style={styles.authErrorText}>{photoError}</Text>
+              </View>
+            ) : null}
+
             {notice ? (
               <View style={styles.authNoticeContainer}>
                 <Text style={styles.authNoticeText}>{notice}</Text>
@@ -830,6 +945,32 @@ function AuthModal({
                   autoCapitalize="words"
                   style={styles.field}
                 />
+
+                <Text style={styles.label}>Profile Photo (Optional)</Text>
+                <Pressable
+                  style={styles.photoPicker}
+                  onPress={handleChoosePhoto}
+                  disabled={busy}
+                >
+                  {photoUri ? (
+                    <Image
+                      source={{ uri: photoUri }}
+                      style={styles.photoPreview}
+                    />
+                  ) : (
+                    <View style={styles.photoPlaceholder}>
+                      <Text style={styles.photoPlaceholderText}>+</Text>
+                    </View>
+                  )}
+                  <View style={styles.photoPickerText}>
+                    <Text style={styles.photoPickerTitle}>
+                      {photoUri ? "Change profile photo" : "Choose profile photo"}
+                    </Text>
+                    <Text style={styles.photoPickerHint}>
+                      Optional · image must be under 5 MB
+                    </Text>
+                  </View>
+                </Pressable>
 
                 <Text style={styles.label}>Phone Number (Optional)</Text>
                 <TextInput
@@ -867,7 +1008,14 @@ function AuthModal({
               autoCapitalize="none"
               style={styles.field}
               onSubmitEditing={() =>
-                !busy && onEmail(mode, email, password, name, phone)
+                !busy &&
+                onEmail(mode, email, password, name, phone, photoUri
+                  ? {
+                      uri: photoUri,
+                      dataUrl: photoDataUrl,
+                      contentType: photoContentType,
+                    }
+                  : undefined)
               }
             />
 
@@ -889,7 +1037,22 @@ function AuthModal({
             <Pressable
               disabled={busy}
               style={[styles.primary, busy && styles.disabled]}
-              onPress={() => onEmail(mode, email, password, name, phone)}
+              onPress={() =>
+                onEmail(
+                  mode,
+                  email,
+                  password,
+                  name,
+                  phone,
+                  photoUri
+                    ? {
+                        uri: photoUri,
+                        dataUrl: photoDataUrl,
+                        contentType: photoContentType,
+                      }
+                    : undefined,
+                )
+              }
             >
               {busy ? (
                 <View style={styles.loadingRow}>
@@ -1198,6 +1361,54 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 14,
     marginBottom: 6,
+  },
+
+  photoPicker: {
+    minHeight: 68,
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#CFDCD3",
+    borderRadius: 10,
+    padding: 10,
+    backgroundColor: "#FAFBF9",
+  },
+
+  photoPreview: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+
+  photoPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#E7EFE9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  photoPlaceholderText: {
+    color: "#1F5D4C",
+    fontSize: 24,
+    fontWeight: "500",
+  },
+
+  photoPickerText: {
+    marginLeft: 12,
+  },
+
+  photoPickerTitle: {
+    color: "#1F5D4C",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  photoPickerHint: {
+    color: "#74857E",
+    fontSize: 11,
+    marginTop: 4,
   },
 
   field: {

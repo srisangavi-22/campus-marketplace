@@ -19,6 +19,7 @@ export function ExplorePage({
   category,
   savedIds,
   userPhotoURL,
+  userDisplayName,
   onQueryChange,
   onCategoryChange,
   onSave,
@@ -30,6 +31,7 @@ export function ExplorePage({
   category: string;
   savedIds: string[];
   userPhotoURL?: string | null;
+  userDisplayName?: string | null;
   onQueryChange: (value: string) => void;
   onCategoryChange: (value: string) => void;
   onSave: (id: string) => void;
@@ -37,6 +39,14 @@ export function ExplorePage({
   onProfile: () => void;
 }) {
   const [failedPhotoURL, setFailedPhotoURL] = useState<string | null>(null);
+  const userName = userDisplayName?.trim() || "";
+  const userInitials = userName
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
@@ -55,7 +65,9 @@ export function ExplorePage({
               onError={() => setFailedPhotoURL(userPhotoURL)}
             />
           ) : (
-            <Text style={styles.avatarText}>?</Text>
+            <Text style={styles.avatarText}>
+              {userInitials || "?"}
+            </Text>
           )}
         </Pressable>
       </View>
