@@ -1,7 +1,9 @@
 import { useState } from "react";
 import {
+  Alert,
   Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,37 +17,29 @@ import { AppUser, DEMO_USER, MEETUP_SPOTS } from "../authHelpers";
 export function ProfilePage({
   user,
   meetup,
-  savedCount,
-  listingCount,
   firebaseConfigured,
   profileReady,
   error,
-  onMyListings,
-  onSaved,
   onSignIn,
   onSignUp,
-  onBrowse,
   onSignOut,
   onUpdateProfile,
+  onResetPassword,
 }: {
   user: AppUser | null;
   meetup: string;
-  savedCount: number;
-  listingCount: number;
   firebaseConfigured: boolean;
   profileReady: boolean;
   error: string;
-  onMyListings: () => void;
-  onSaved: () => void;
   onSignIn: () => void;
   onSignUp?: () => void;
-  onBrowse?: () => void;
   onSignOut: () => void;
   onUpdateProfile: (
     displayName: string,
     meetupPreference: string,
     phoneNumber?: string,
   ) => Promise<void>;
+  onResetPassword?: (email: string) => Promise<boolean>;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState("");
@@ -53,6 +47,7 @@ export function ProfilePage({
   const [editMeetup, setEditMeetup] = useState(meetup);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState("");
+  const [resetNotice, setResetNotice] = useState("");
 
   const isDemo = user?.uid === DEMO_USER.uid;
 
@@ -115,11 +110,23 @@ export function ProfilePage({
     }
   };
 
+  const handlePasswordReset = async () => {
+    if (!user?.email || !onResetPassword) return;
+    try {
+      const ok = await onResetPassword(user.email);
+      if (ok) {
+        setResetNotice("Password reset instructions sent to your email.");
+      }
+    } catch {
+      setResetNotice("Could not send password reset email.");
+    }
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <PageTitle
-        title="Profile"
-        subtitle="Manage your campus account, listings, and preferences"
+        title="Student Profile"
+        subtitle="Manage your campus account authentication and credentials"
       />
 
       {/* Main Profile Hero Card */}
@@ -140,7 +147,7 @@ export function ProfilePage({
         <Text style={styles.name}>{user ? name : "Campus Guest"}</Text>
 
         <Text style={styles.email}>
-          {user?.email || "Sign in to sell items and message campus members"}
+          {user?.email || "Sign in to authenticate your campus student profile"}
         </Text>
 
         {user?.phoneNumber ? (
@@ -156,7 +163,7 @@ export function ProfilePage({
 
         {isDemo ? (
           <View style={styles.demoBadgeContainer}>
-            <Text style={styles.demoBadge}>Student Demo Account</Text>
+            <Text style={styles.demoBadge}>Student Demo Mode</Text>
           </View>
         ) : null}
 
@@ -172,38 +179,28 @@ export function ProfilePage({
         ) : null}
       </View>
 
-      {/* When Signed In: Stat Cards for Listings and Saved Items */}
-      {user ? (
-        <View style={styles.statsContainer}>
-          <Pressable style={styles.statCard} onPress={onMyListings}>
-            <Text style={styles.statNumber}>{listingCount}</Text>
-            <Text style={styles.statLabel}>My Listings</Text>
-            <Text style={styles.statAction}>View listings →</Text>
-          </Pressable>
-
-          <Pressable style={styles.statCard} onPress={onSaved}>
-            <Text style={styles.statNumber}>{savedCount}</Text>
-            <Text style={styles.statLabel}>Saved Items</Text>
-            <Text style={styles.statAction}>View saved →</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
-      {/* Account Information Section */}
+      {/* Account & Authentication Information Section */}
       {user ? (
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionHeaderTitle}>ACCOUNT INFORMATION</Text>
+          <Text style={styles.sectionHeaderTitle}>ACCOUNT & AUTHENTICATION</Text>
 
           <View style={styles.infoRow}>
-            <Text style={styles.infoKey}>Account Status</Text>
+            <Text style={styles.infoKey}>Student Status</Text>
             <View style={styles.statusBadge}>
               <View style={styles.statusDot} />
-              <Text style={styles.statusText}>Active Student</Text>
+              <Text style={styles.statusText}>Active & Verified</Text>
             </View>
           </View>
 
           <View style={styles.infoRow}>
-            <Text style={styles.infoKey}>Email Address</Text>
+            <Text style={styles.infoKey}>Authentication Provider</Text>
+            <Text style={styles.infoVal}>
+              {firebaseConfigured ? "Firebase Auth" : "Campus Demo Auth"}
+            </Text>
+          </View>
+
+          <View style={styles.infoRow}>
+            <Text style={styles.infoKey}>Student Email</Text>
             <Text style={styles.infoVal}>{user.email || "—"}</Text>
           </View>
 
@@ -215,7 +212,7 @@ export function ProfilePage({
           </View>
 
           <View style={styles.infoRow}>
-            <Text style={styles.infoKey}>Campus Location</Text>
+            <Text style={styles.infoKey}>Campus</Text>
             <Text style={styles.infoVal}>{user.campus || "North Campus"}</Text>
           </View>
 
@@ -231,41 +228,43 @@ export function ProfilePage({
         </View>
       ) : null}
 
-      {/* Navigation Buttons Menu */}
-      <View style={styles.menu}>
-        <Row
-          icon="📦"
-          label="My Listings"
-          value={`${listingCount} active`}
-          onPress={user ? onMyListings : onSignIn}
-        />
-        <Row
-          icon="❤️"
-          label="Saved / Favorites"
-          value={`${savedCount} saved`}
-          onPress={onSaved}
-        />
-        <Row
-          icon="📍"
-          label="Meetup Preferences"
-          value={meetup}
-          onPress={user ? openEditProfile : onSignIn}
-        />
-        {user ? (
+      {/* Account Settings Menu */}
+      {user ? (
+        <View style={styles.menu}>
           <Row
-            icon="⚙️"
+            icon="👤"
             label="Edit Profile Details"
             value="Update"
             onPress={openEditProfile}
           />
-        ) : null}
-      </View>
+          <Row
+            icon="📍"
+            label="Campus Meetup Spot"
+            value={meetup}
+            onPress={openEditProfile}
+          />
+          {onResetPassword ? (
+            <Row
+              icon="🔒"
+              label="Reset Password"
+              value="Send link"
+              onPress={handlePasswordReset}
+            />
+          ) : null}
+        </View>
+      ) : null}
+
+      {resetNotice ? (
+        <View style={styles.noticeBox}>
+          <Text style={styles.noticeText}>{resetNotice}</Text>
+        </View>
+      ) : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {firebaseConfigured && user && !isDemo && profileReady ? (
         <View style={styles.syncBanner}>
-          <Text style={styles.syncText}>✓ Profile synced with Firebase</Text>
+          <Text style={styles.syncText}>✓ Profile authenticated & synced with Firebase</Text>
         </View>
       ) : null}
 
@@ -276,9 +275,9 @@ export function ProfilePage({
         </Pressable>
       ) : (
         <View style={styles.authPromptBox}>
-          <Text style={styles.authPromptTitle}>Ready to connect?</Text>
+          <Text style={styles.authPromptTitle}>Welcome to Campus Marketplace</Text>
           <Text style={styles.authPromptSubtitle}>
-            Sign in to start messaging campus sellers, save favorite listings, and list items for sale.
+            Sign in to access your student profile, manage your campus credentials, and verify your account.
           </Text>
 
           <Pressable style={styles.primary} onPress={onSignIn}>
@@ -287,13 +286,7 @@ export function ProfilePage({
 
           {onSignUp ? (
             <Pressable style={styles.outline} onPress={onSignUp}>
-              <Text style={styles.outlineText}>Create New Account</Text>
-            </Pressable>
-          ) : null}
-
-          {onBrowse ? (
-            <Pressable style={styles.browseButton} onPress={onBrowse}>
-              <Text style={styles.browseButtonText}>← Browse Marketplace (Home)</Text>
+              <Text style={styles.outlineText}>Create New Student Account</Text>
             </Pressable>
           ) : null}
         </View>
@@ -301,8 +294,8 @@ export function ProfilePage({
 
       <Text style={styles.backend}>
         {firebaseConfigured
-          ? "Connected to Firebase Cloud Firestore & Auth"
-          : "Local Campus Mode · Seamless Authentication & Persistence"}
+          ? "Connected to Firebase Authentication & Cloud Firestore"
+          : "Local Campus Mode · Authentication & Profile Persistence"}
       </Text>
 
       {/* Edit Profile Modal */}
@@ -314,9 +307,9 @@ export function ProfilePage({
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.editModal}>
-            <Text style={styles.formTitle}>Edit Profile</Text>
+            <Text style={styles.formTitle}>Edit Profile Settings</Text>
             <Text style={styles.formSubtitle}>
-              Update your public display information and campus preferences.
+              Update your student display name, contact phone, and campus location.
             </Text>
 
             <Text style={styles.inputLabel}>Display Name</Text>
@@ -344,7 +337,7 @@ export function ProfilePage({
             />
 
             <Text style={[styles.inputLabel, styles.sectionGap]}>
-              Preferred Meetup Spot
+              Campus Meetup Preference
             </Text>
             <View style={styles.chips}>
               {MEETUP_SPOTS.map((spot) => {
@@ -556,42 +549,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  statsContainer: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 16,
-  },
-
-  statCard: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#E5EBE5",
-    alignItems: "center",
-  },
-
-  statNumber: {
-    fontSize: 26,
-    fontWeight: "800",
-    color: "#184E3F",
-  },
-
-  statLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#3A554C",
-    marginTop: 2,
-  },
-
-  statAction: {
-    fontSize: 11,
-    color: "#288365",
-    fontWeight: "700",
-    marginTop: 8,
-  },
-
   sectionCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
@@ -741,18 +698,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
-  browseButton: {
-    marginTop: 14,
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-
-  browseButtonText: {
-    color: "#288365",
-    fontWeight: "700",
-    fontSize: 13,
-  },
-
   logoutButton: {
     height: 48,
     borderRadius: 12,
@@ -805,6 +750,22 @@ const styles = StyleSheet.create({
     color: "#1F7351",
     fontSize: 12,
     fontWeight: "700",
+  },
+
+  noticeBox: {
+    backgroundColor: "#EBF5EF",
+    borderWidth: 1,
+    borderColor: "#C5E3D0",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+
+  noticeText: {
+    color: "#1D704F",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
   },
 
   error: {

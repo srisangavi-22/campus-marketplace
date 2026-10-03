@@ -27,8 +27,8 @@ export function SavedPage({
         contentContainerStyle={styles.grid}
         ListEmptyComponent={
           <EmptyState
-            title="No saved items yet"
-            message="Listings you save will appear here."
+            title="Nothing saved yet"
+            message="Tap the heart on an item you want to come back to."
           />
         }
         renderItem={({ item }) => (

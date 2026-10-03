@@ -12,20 +12,14 @@ import {
   updateProfile,
 } from "firebase/auth";
 import {
-  addDoc,
-  collection,
-  deleteDoc,
   doc,
   onSnapshot,
-  orderBy,
-  query,
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Modal,
   Platform,
   Pressable,
@@ -36,7 +30,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { EmptyState } from "./components/EmptyState";
 import { ExplorePage } from "./pages/ExplorePage";
 import { MessagesPage } from "./pages/MessagesPage";
 import { MyListingsPage } from "./pages/MyListingsPage";
@@ -44,11 +37,10 @@ import { ProfilePage } from "./pages/ProfilePage";
 import { SavedPage } from "./pages/SavedPage";
 import { seedListings } from "./data";
 import { auth, db, firebaseConfigured } from "./firebase";
-import { Listing, Tab } from "./types";
+import { Tab } from "./types";
 import {
   AppUser,
   DEMO_USER,
-  NO_FIREBASE_MESSAGE,
   friendlyAuthError,
   toAppUser,
   validateAuthInput,
@@ -56,9 +48,11 @@ import {
   saveStoredSession,
   getDemoAccounts,
   saveDemoAccounts,
-  loadUserSavedIds,
-  saveUserSavedIds,
 } from "./authHelpers";
+
+/* -------------------------------------------------------------
+   User Authentication & Profile Synchronization with Firebase
+---------------------------------------------------------------- */
 
 async function registerUser(user: AppUser) {
   if (!db) return;
@@ -81,7 +75,6 @@ async function registerUser(user: AppUser) {
   );
 }
 
-/* Persist profile edits to Firebase Auth + Firestore */
 async function saveProfileRemote(
   uid: string,
   displayName: string,
@@ -107,18 +100,8 @@ async function saveProfileRemote(
 }
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("Explore");
-  const [items, setItems] = useState(seedListings);
-  const [queryText, setQueryText] = useState("");
-  const [category, setCategory] = useState("All items");
-  // Initialize savedIds for the active user (default is empty: [])
-  const [savedIds, setSavedIds] = useState<string[]>(() => {
-    const initialUser = auth?.currentUser
-      ? toAppUser(auth.currentUser)
-      : loadStoredSession();
-    return loadUserSavedIds(initialUser?.uid);
-  });
-  const [selected, setSelected] = useState<Listing | null>(null);
+  // Default to Profile tab to focus on Authentication of the Profile
+  const [tab, setTab] = useState<Tab>("Profile");
 
   // Initialize user from existing Firebase auth or local stored session
   const [user, setUser] = useState<AppUser | null>(() => {
@@ -130,7 +113,6 @@ export default function App() {
 
   const [authOpen, setAuthOpen] = useState(false);
   const [authInitialMode, setAuthInitialMode] = useState<"signIn" | "signUp">("signIn");
-  const [sellOpen, setSellOpen] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [profileReady, setProfileReady] = useState(false);
@@ -138,27 +120,7 @@ export default function App() {
     user?.meetupPreference || user?.campus || "North Campus",
   );
 
-  /* Load saved items for the current user (from Firestore if connected, else local storage) */
-  useEffect(() => {
-    if (db && user && user.uid !== DEMO_USER.uid) {
-      const savedQuery = collection(db, "users", user.uid, "saved");
-      return onSnapshot(
-        savedQuery,
-        (snapshot) => {
-          const ids = snapshot.docs.map((docSnap) => docSnap.id);
-          setSavedIds(ids);
-          saveUserSavedIds(user.uid, ids);
-        },
-        () => {
-          setSavedIds(loadUserSavedIds(user.uid));
-        },
-      );
-    } else {
-      setSavedIds(loadUserSavedIds(user?.uid));
-    }
-  }, [user?.uid]);
-
-  /* Keep user in sync with Firebase if configured */
+  /* Keep user in sync with Firebase Authentication */
   useEffect(() => {
     const firebaseAuth = auth;
     if (!firebaseAuth) {
@@ -208,72 +170,6 @@ export default function App() {
     );
   }, [user?.uid]);
 
-  /* Load listings from Firestore */
-  useEffect(() => {
-    if (!db) return;
-
-    const listingsQuery = query(
-      collection(db, "listings"),
-      orderBy("createdAt", "desc"),
-    );
-
-    return onSnapshot(
-      listingsQuery,
-      (snapshot) =>
-        setItems(
-          snapshot.empty
-            ? seedListings
-            : snapshot.docs.map(
-                (entry) =>
-                  ({
-                    id: entry.id,
-                    ...entry.data(),
-                  }) as Listing,
-              ),
-        ),
-      () => setItems(seedListings),
-    );
-  }, []);
-
-  const filteredItems = useMemo(
-    () =>
-      items.filter(
-        (item) =>
-          (category === "All items" || item.category === category) &&
-          item.title.toLowerCase().includes(queryText.toLowerCase()),
-      ),
-    [category, items, queryText],
-  );
-
-  const myListings = useMemo(
-    () =>
-      user ? items.filter((item) => item.sellerId === user.uid) : [],
-    [items, user],
-  );
-
-  const toggleSaved = async (id: string) => {
-    const isSaved = savedIds.includes(id);
-    const next = isSaved
-      ? savedIds.filter((value) => value !== id)
-      : [...savedIds, id];
-
-    setSavedIds(next);
-    saveUserSavedIds(user?.uid, next);
-
-    if (db && user && user.uid !== DEMO_USER.uid) {
-      const savedRef = doc(db, "users", user.uid, "saved", id);
-      try {
-        if (isSaved) {
-          await deleteDoc(savedRef);
-        } else {
-          await setDoc(savedRef, { savedAt: serverTimestamp() });
-        }
-      } catch {
-        // Handled silently
-      }
-    }
-  };
-
   /* ---------- Auth actions ---------- */
 
   const openAuth = (mode: "signIn" | "signUp" = "signIn") => {
@@ -320,7 +216,7 @@ export default function App() {
     name: string,
     phone?: string,
   ) => {
-    // 1. Client-side input validation
+    // Client-side input validation
     const validationError = validateAuthInput(mode, email, password, name);
     if (validationError) {
       setAuthError(validationError);
@@ -366,7 +262,7 @@ export default function App() {
         setAuthOpen(false);
       } else {
         // Campus Demo Mode Simulation (realistic latency for loading spinner)
-        await new Promise((resolve) => setTimeout(resolve, 600));
+        await new Promise((resolve) => setTimeout(resolve, 500));
 
         const accounts = getDemoAccounts();
         const normalizedEmail = email.trim().toLowerCase();
@@ -466,7 +362,6 @@ export default function App() {
     saveStoredSession(null);
     setProfileReady(false);
     setMeetup("North Campus");
-    setSavedIds(loadUserSavedIds(null));
   };
 
   const handleUpdateProfile = async (
@@ -500,128 +395,64 @@ export default function App() {
     }
   };
 
-  /* ---------- Marketplace actions ---------- */
-
-  const publish = async (
-    title: string,
-    price: string,
-    listingCategory: string,
-  ) => {
-    if (!user) {
-      setSellOpen(false);
-      openAuth("signIn");
-      return;
-    }
-
-    const listing = {
-      title,
-      price: Number(price),
-      category: listingCategory,
-      seller: user.displayName || user.email || "Campus Student",
-      sellerId: user.uid,
-      campus: meetup,
-      condition: "Good condition",
-      image: seedListings[0].image,
-      description: "Available for pickup around campus.",
-    };
-
-    if (db && user.uid !== DEMO_USER.uid) {
-      await addDoc(collection(db, "listings"), {
-        ...listing,
-        createdAt: serverTimestamp(),
-      });
-    } else {
-      setItems((current) => [
-        { id: `local-${Date.now()}`, ...listing } as Listing,
-        ...current,
-      ]);
-    }
-
-    setSellOpen(false);
-  };
-
-  const contactSeller = () => {
-    if (!user) {
-      openAuth("signIn");
-      return;
-    }
-
-    setSelected(null);
-    setTab("Messages");
-  };
-
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
 
+      {/* Main Profile & Authentication Screen */}
+      {tab === "Profile" && (
+        <ProfilePage
+          user={user}
+          meetup={meetup}
+          firebaseConfigured={firebaseConfigured}
+          profileReady={profileReady}
+          error={authError}
+          onSignIn={() => openAuth("signIn")}
+          onSignUp={() => openAuth("signUp")}
+          onSignOut={handleSignOut}
+          onUpdateProfile={handleUpdateProfile}
+          onResetPassword={resetPassword}
+        />
+      )}
+
+      {/* Placeholders for other team members' components */}
       {tab === "Explore" && (
         <ExplorePage
-          items={filteredItems}
-          query={queryText}
-          category={category}
-          savedIds={savedIds}
-          user={user}
-          onQueryChange={setQueryText}
-          onCategoryChange={setCategory}
-          onSave={toggleSaved}
-          onOpen={setSelected}
+          items={seedListings}
+          query=""
+          category="All items"
+          savedIds={[]}
+          onQueryChange={() => undefined}
+          onCategoryChange={() => undefined}
+          onSave={() => undefined}
+          onOpen={() => undefined}
           onProfile={() => setTab("Profile")}
         />
       )}
 
       {tab === "Saved" && (
         <SavedPage
-          items={items.filter((item) => savedIds.includes(item.id))}
-          onSave={toggleSaved}
-          onOpen={setSelected}
+          items={[]}
+          onSave={() => undefined}
+          onOpen={() => undefined}
         />
       )}
 
       {tab === "Messages" && (
-        <MessagesPage onBrowse={() => setTab("Explore")} />
+        <MessagesPage onBrowse={() => setTab("Profile")} />
       )}
 
       {tab === "MyListings" && (
         <MyListingsPage
-          items={myListings}
-          onOpen={setSelected}
-          onSell={() => (user ? setSellOpen(true) : openAuth("signIn"))}
-        />
-      )}
-
-      {tab === "Profile" && (
-        <ProfilePage
-          user={user}
-          meetup={meetup}
-          savedCount={savedIds.length}
-          listingCount={myListings.length}
-          firebaseConfigured={firebaseConfigured}
-          profileReady={profileReady}
-          error={authError}
-          onMyListings={() =>
-            user ? setTab("MyListings") : openAuth("signIn")
-          }
-          onSaved={() => setTab("Saved")}
-          onSignIn={() => openAuth("signIn")}
-          onSignUp={() => openAuth("signUp")}
-          onBrowse={() => setTab("Explore")}
-          onSignOut={handleSignOut}
-          onUpdateProfile={handleUpdateProfile}
+          items={[]}
+          onOpen={() => undefined}
+          onSell={() => undefined}
         />
       )}
 
       <BottomNav
         tab={tab}
-        savedCount={savedIds.length}
         onChange={setTab}
-        onSell={() => (user ? setSellOpen(true) : openAuth("signIn"))}
-      />
-
-      <ListingModal
-        item={selected}
-        user={user}
-        onClose={() => setSelected(null)}
-        onContact={contactSeller}
       />
 
       <AuthModal
@@ -637,14 +468,8 @@ export default function App() {
         demoMode={!auth}
         onNavigateHome={() => {
           closeAuth();
-          setTab("Explore");
+          setTab("Profile");
         }}
-      />
-
-      <SellModal
-        visible={sellOpen}
-        onClose={() => setSellOpen(false)}
-        onSubmit={publish}
       />
     </SafeAreaView>
   );
@@ -652,17 +477,20 @@ export default function App() {
 
 function BottomNav({
   tab,
-  savedCount,
   onChange,
-  onSell,
 }: {
   tab: Tab;
-  savedCount: number;
   onChange: (tab: Tab) => void;
-  onSell: () => void;
 }) {
   return (
     <View style={styles.nav}>
+      <NavItem
+        label="Profile"
+        icon="☺"
+        active={tab === "Profile"}
+        onPress={() => onChange("Profile")}
+      />
+
       <NavItem
         label="Explore"
         icon="⌂"
@@ -674,7 +502,6 @@ function BottomNav({
         label="Saved"
         icon="♡"
         active={tab === "Saved"}
-        badge={savedCount}
         onPress={() => onChange("Saved")}
       />
 
@@ -686,16 +513,11 @@ function BottomNav({
       />
 
       <NavItem
-        label="Profile"
-        icon="☺"
-        active={tab === "Profile" || tab === "MyListings"}
-        onPress={() => onChange("Profile")}
+        label="My Listings"
+        icon="📦"
+        active={tab === "MyListings"}
+        onPress={() => onChange("MyListings")}
       />
-
-      <Pressable style={styles.sellButton} onPress={onSell}>
-        <Text style={styles.sellPlus}>＋</Text>
-        <Text style={styles.sellText}>Sell</Text>
-      </Pressable>
     </View>
   );
 }
@@ -704,88 +526,22 @@ function NavItem({
   label,
   icon,
   active,
-  badge,
   onPress,
 }: {
   label: string;
   icon: string;
   active: boolean;
-  badge?: number;
   onPress: () => void;
 }) {
   return (
     <Pressable style={styles.navItem} onPress={onPress}>
-      <View>
-        <Text style={[styles.navIcon, active && styles.navActive]}>
-          {icon}
-        </Text>
-
-        {badge ? (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{badge}</Text>
-          </View>
-        ) : null}
-      </View>
-
+      <Text style={[styles.navIcon, active && styles.navActive]}>
+        {icon}
+      </Text>
       <Text style={[styles.navLabel, active && styles.navActive]}>
         {label}
       </Text>
     </Pressable>
-  );
-}
-
-function ListingModal({
-  item,
-  user,
-  onClose,
-  onContact,
-}: {
-  item: Listing | null;
-  user: AppUser | null;
-  onClose: () => void;
-  onContact: () => void;
-}) {
-  return (
-    <Modal
-      visible={item !== null}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      {item && (
-        <View style={styles.backdrop}>
-          <View style={styles.detail}>
-            <Image source={{ uri: item.image }} style={styles.detailImage} />
-
-            <Pressable style={styles.close} onPress={onClose}>
-              <Text style={styles.closeText}>×</Text>
-            </Pressable>
-
-            <View style={styles.detailBody}>
-              <Text style={styles.detailCategory}>
-                {item.category.toUpperCase()}
-              </Text>
-
-              <Text style={styles.detailTitle}>{item.title}</Text>
-
-              <Text style={styles.detailPrice}>${item.price}</Text>
-
-              <Text style={styles.muted}>
-                {item.condition} · {item.campus} · {item.seller}
-              </Text>
-
-              <Text style={styles.description}>{item.description}</Text>
-
-              <Pressable style={styles.primary} onPress={onContact}>
-                <Text style={styles.primaryText}>
-                  {user ? `Message ${item.seller}` : "Sign in to contact seller"}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      )}
-    </Modal>
   );
 }
 
@@ -903,11 +659,11 @@ function AuthModal({
 
             <Text style={styles.authMessage}>
               {isSignUp
-                ? "Join your campus marketplace to post listings and connect with fellow students."
-                : "Sign in to save items, message sellers, and manage your campus listings."}
+                ? "Create your student account to verify your campus profile."
+                : "Sign in to access and manage your campus student profile."}
             </Text>
 
-            {/* User Friendly Validation & Auth Error Box */}
+            {/* Validation & Auth Error Box */}
             {error ? (
               <View style={styles.authErrorContainer}>
                 <Text style={styles.authErrorIcon}>⚠️</Text>
@@ -987,7 +743,7 @@ function AuthModal({
               </Pressable>
             ) : null}
 
-            {/* Submit Button with Loading State & Disabled while Busy */}
+            {/* Submit Button with Loading State */}
             <Pressable
               disabled={busy}
               style={[styles.primary, busy && styles.disabled]}
@@ -1045,71 +801,17 @@ function AuthModal({
               </Text>
             </Pressable>
 
-            {/* Navigation back to Home / Explore */}
+            {/* Close / Return */}
             <Pressable
               style={styles.homeLinkButton}
               onPress={onNavigateHome || onClose}
             >
               <Text style={styles.homeLinkText}>
-                ← Back to Explore (Home)
+                ✕ Close
               </Text>
             </Pressable>
           </View>
         </ScrollView>
-      </View>
-    </Modal>
-  );
-}
-
-function SellModal({
-  visible,
-  onClose,
-  onSubmit,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onSubmit: (title: string, price: string, category: string) => Promise<void>;
-}) {
-  const [title, setTitle] = useState("");
-  const [price, setPrice] = useState("");
-  const [category, setCategory] = useState("Textbooks");
-
-  return (
-    <Modal visible={visible} transparent animationType="slide">
-      <View style={styles.backdrop}>
-        <View style={styles.form}>
-          <View style={styles.formHeader}>
-            <Text style={styles.formTitle}>Sell an item</Text>
-            <Pressable onPress={onClose}>
-              <Text style={styles.closeText}>×</Text>
-            </Pressable>
-          </View>
-
-          <Text style={styles.label}>What are you selling?</Text>
-          <TextInput
-            value={title}
-            onChangeText={setTitle}
-            placeholder="e.g. Organic Chemistry textbook"
-            style={styles.field}
-          />
-
-          <Text style={styles.label}>Price</Text>
-          <TextInput
-            value={price}
-            onChangeText={setPrice}
-            keyboardType="numeric"
-            placeholder="$ 0"
-            style={styles.field}
-          />
-
-          <Pressable
-            disabled={!title || !price}
-            style={[styles.primary, (!title || !price) && styles.disabled]}
-            onPress={() => onSubmit(title, price, category)}
-          >
-            <Text style={styles.primaryText}>Publish listing</Text>
-          </Pressable>
-        </View>
       </View>
     </Modal>
   );
@@ -1155,114 +857,10 @@ const styles = StyleSheet.create({
     color: "#1D6B54",
   },
 
-  badge: {
-    position: "absolute",
-    right: -12,
-    top: -3,
-    backgroundColor: "#C3535B",
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
-    alignItems: "center",
-  },
-
-  badgeText: {
-    color: "#FFF",
-    fontSize: 9,
-    fontWeight: "800",
-  },
-
-  sellButton: {
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#E6F0E6",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    gap: 4,
-  },
-
-  sellPlus: {
-    color: "#247055",
-    fontSize: 20,
-  },
-
-  sellText: {
-    color: "#247055",
-    fontWeight: "800",
-    fontSize: 12,
-  },
-
   backdrop: {
     flex: 1,
     backgroundColor: "rgba(15,40,33,.45)",
-    justifyContent: "flex-end",
-  },
-
-  detail: {
-    backgroundColor: "#FFF",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    overflow: "hidden",
-  },
-
-  detailImage: {
-    width: "100%",
-    height: 230,
-  },
-
-  close: {
-    position: "absolute",
-    top: 14,
-    right: 14,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#FFF",
-    alignItems: "center",
     justifyContent: "center",
-  },
-
-  closeText: {
-    color: "#173C34",
-    fontSize: 26,
-  },
-
-  detailBody: {
-    padding: 24,
-  },
-
-  detailCategory: {
-    color: "#23775D",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.5,
-  },
-
-  detailTitle: {
-    color: "#173C34",
-    fontSize: 25,
-    fontWeight: "800",
-    marginTop: 8,
-  },
-
-  detailPrice: {
-    color: "#1C7057",
-    fontSize: 22,
-    fontWeight: "800",
-    marginTop: 8,
-  },
-
-  muted: {
-    color: "#87918C",
-    fontSize: 12,
-  },
-
-  description: {
-    color: "#66736D",
-    fontSize: 14,
-    lineHeight: 21,
-    marginVertical: 20,
   },
 
   primary: {
@@ -1331,19 +929,6 @@ const styles = StyleSheet.create({
   authTabTextActive: {
     color: "#173C34",
     fontWeight: "800",
-  },
-
-  form: {
-    backgroundColor: "#FFF",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-  },
-
-  formHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
   },
 
   formTitle: {
