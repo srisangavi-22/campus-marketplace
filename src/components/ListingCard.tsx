@@ -19,7 +19,10 @@ export function ListingCard({
         <Pressable
           accessibilityLabel={saved ? "Remove saved item" : "Save item"}
           style={styles.save}
-          onPress={onSave}
+          onPress={(event) => {
+            event.stopPropagation();
+            onSave();
+          }}
         >
           <Text style={[styles.heart, saved && styles.red]}>
             {saved ? "♥" : "♡"}

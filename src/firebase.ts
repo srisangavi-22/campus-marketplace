@@ -21,5 +21,6 @@ export const auth = firebaseApp ? getAuth(firebaseApp) : null;
 export const db = firebaseApp ? getFirestore(firebaseApp) : null;
 export const listingsCollection = db ? collection(db, "listings") : null;
 export const usersCollection = db ? collection(db, "users") : null;
+export const savedListingsCollection = db ? collection(db, "savedListings") : null;
 export const listingDocument = (id: string) =>
   db ? doc(db, "listings", id) : null;

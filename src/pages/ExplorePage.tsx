@@ -1,5 +1,6 @@
 import {
   FlatList,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -7,6 +8,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useState } from "react";
 import { ListingCard } from "../components/ListingCard";
 import { categories } from "../data";
 import { Listing } from "../types";
@@ -16,6 +18,7 @@ export function ExplorePage({
   query,
   category,
   savedIds,
+  userPhotoURL,
   onQueryChange,
   onCategoryChange,
   onSave,
@@ -26,12 +29,15 @@ export function ExplorePage({
   query: string;
   category: string;
   savedIds: string[];
+  userPhotoURL?: string | null;
   onQueryChange: (value: string) => void;
   onCategoryChange: (value: string) => void;
   onSave: (id: string) => void;
   onOpen: (item: Listing) => void;
   onProfile: () => void;
 }) {
+  const [failedPhotoURL, setFailedPhotoURL] = useState<string | null>(null);
+
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.header}>
@@ -42,7 +48,15 @@ export function ExplorePage({
           </Text>
         </View>
         <Pressable style={styles.avatar} onPress={onProfile}>
-          <Text style={styles.avatarText}>?</Text>
+          {userPhotoURL && userPhotoURL !== failedPhotoURL ? (
+            <Image
+              source={{ uri: userPhotoURL }}
+              style={styles.avatarImage}
+              onError={() => setFailedPhotoURL(userPhotoURL)}
+            />
+          ) : (
+            <Text style={styles.avatarText}>?</Text>
+          )}
         </Pressable>
       </View>
       <View style={styles.search}>
@@ -139,6 +153,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarText: { color: "#225347", fontWeight: "800" },
+  avatarImage: { width: "100%", height: "100%", borderRadius: 21 },
   search: {
     height: 52,
     backgroundColor: "#FFF",
