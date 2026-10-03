@@ -98,15 +98,7 @@ export function validateAuthInput(
 export function friendlyAuthError(error: unknown): string {
   if (!error) return "";
 
-  const code =
-    typeof error === "object" && error !== null && "code" in error
-      ? String((error as { code?: unknown }).code)
-      : "";
-
-  const rawMessage =
-    typeof error === "object" && error !== null && "message" in error
-      ? String((error as { message?: unknown }).message)
-      : String(error);
+  const code = getAuthErrorCode(error);
 
   switch (code) {
     case "auth/invalid-email":
@@ -122,13 +114,25 @@ export function friendlyAuthError(error: unknown): string {
     case "auth/wrong-password":
     case "auth/invalid-credential":
     case "auth/invalid-login-credentials":
-      return "Incorrect email or password.";
+      return "Invalid email or password. Please check your credentials and try again.";
 
     case "auth/email-already-in-use":
-      return "An account with this email already exists.";
+      return "Could not create an account with these details. Please review your information and try again.";
 
     case "auth/weak-password":
       return "Password must be at least 6 characters.";
+
+    case "auth/operation-not-allowed":
+    case "auth/admin-restricted-operation":
+      return "Email/password sign-in is disabled for this Firebase project. Enable the Email/Password provider in Firebase Console under Authentication > Sign-in method.";
+
+    case "auth/invalid-api-key":
+    case "auth/app-not-authorized":
+    case "auth/configuration-not-found":
+      return "Firebase Authentication is not configured correctly for this app. Please contact the app administrator.";
+
+    case "auth/unauthorized-domain":
+      return "This app's domain is not authorized for Firebase Authentication. Please contact the app administrator.";
 
     case "auth/too-many-requests":
       return "Too many failed attempts. Please wait a few minutes and try again.";
@@ -147,22 +151,21 @@ export function friendlyAuthError(error: unknown): string {
       return "Sign-in popup was blocked by your browser. Please allow popups.";
 
     default:
-      if (rawMessage.includes("invalid-credential") || rawMessage.includes("wrong-password")) {
-        return "Incorrect email or password.";
-      }
-      if (rawMessage.includes("email-already-in-use")) {
-        return "An account with this email already exists.";
-      }
-      if (rawMessage.includes("weak-password")) {
-        return "Password must be at least 6 characters.";
-      }
-      if (rawMessage.includes("invalid-email")) {
-        return "Please enter a valid email address.";
-      }
-      return rawMessage.length < 100 && !rawMessage.startsWith("Firebase:")
-        ? rawMessage
-        : "An unexpected authentication error occurred. Please try again.";
+      return "An unexpected authentication error occurred. Please try again.";
   }
+}
+
+export function getAuthErrorCode(error: unknown): string {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return "";
+  }
+
+  return typeof error.code === "string" ? error.code : "";
+}
+
+export function logAuthError(context: string, error: unknown): void {
+  const code = getAuthErrorCode(error);
+  console.error(`[auth] ${context} failed${code ? ` (${code})` : ""}`);
 }
 
 /**
@@ -270,6 +273,4 @@ export function saveDemoAccounts(accounts: DemoAccount[]): void {
     // Ignore storage quota
   }
 }
-
-
 

@@ -12,7 +12,10 @@ import {
   updateProfile,
 } from "firebase/auth";
 import {
+  collection,
+  deleteDoc,
   doc,
+  getDocs,
   onSnapshot,
   serverTimestamp,
   setDoc,
@@ -42,6 +45,7 @@ import {
   AppUser,
   DEMO_USER,
   friendlyAuthError,
+  logAuthError,
   toAppUser,
   validateAuthInput,
   loadStoredSession,
@@ -55,24 +59,64 @@ import {
 ---------------------------------------------------------------- */
 
 async function registerUser(user: AppUser) {
-  if (!db) return;
+  if (!db) {
+    throw { code: "app/firestore-not-configured" };
+  }
 
   await setDoc(
     doc(db, "users", user.uid),
     {
       uid: user.uid,
-      displayName:
-        user.displayName ||
-        user.email?.split("@")[0] ||
-        "Campus student",
+      ...(user.displayName ? { displayName: user.displayName } : {}),
       email: user.email || "",
-      phoneNumber: user.phoneNumber || null,
+      ...(user.phoneNumber ? { phoneNumber: user.phoneNumber } : {}),
       photoURL: user.photoURL || null,
       campus: user.campus || "North Campus",
+      meetupPreference: user.meetupPreference || "Student Center",
       updatedAt: serverTimestamp(),
     },
     { merge: true },
   );
+}
+
+async function loadSavedIdsForUser(uid: string) {
+  if (!db || !uid) return [];
+
+  try {
+    const snapshot = await getDocs(collection(db, "users", uid, "saved"));
+
+    return snapshot.docs
+      .map((document) => document.data())
+      .filter(
+        (data): data is { listingId: string } =>
+          typeof data?.listingId === "string",
+      )
+      .map((data) => data.listingId);
+  } catch (error) {
+    console.warn("Could not load saved listings:", error);
+    return [];
+  }
+}
+
+function friendlyProfileSaveError(error: unknown): string {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String(error.code)
+      : "";
+
+  if (code === "permission-denied") {
+    return "Your account is signed in, but Firestore could not save your profile. Check the Firestore rules for users/{uid}.";
+  }
+
+  if (code === "unavailable" || code === "auth/network-request-failed") {
+    return "Your account is signed in, but your profile could not be synced. Check your internet connection and try again.";
+  }
+
+  if (code === "app/firestore-not-configured") {
+    return "Your account is signed in, but Firestore is not configured. Check the Firebase environment settings.";
+  }
+
+  return "Your account is signed in, but your profile could not be saved. Check Firebase Firestore configuration and rules.";
 }
 
 async function saveProfileRemote(
@@ -116,9 +160,34 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [profileReady, setProfileReady] = useState(false);
+  const [savedIds, setSavedIds] = useState<string[]>([]);
   const [meetup, setMeetup] = useState(
     user?.meetupPreference || user?.campus || "North Campus",
   );
+
+  useEffect(() => {
+    if (!user || user.uid === DEMO_USER.uid) {
+      setSavedIds([]);
+      return;
+    }
+
+    if (!db) {
+      setSavedIds([]);
+      return;
+    }
+
+    let active = true;
+
+    loadSavedIdsForUser(user.uid).then((ids) => {
+      if (active) {
+        setSavedIds(ids);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [user?.uid, db]);
 
   /* Keep user in sync with Firebase Authentication */
   useEffect(() => {
@@ -134,6 +203,7 @@ export default function App() {
     }
 
     getRedirectResult(firebaseAuth).catch((error) => {
+      logAuthError("Google redirect sign-in", error);
       const message = friendlyAuthError(error);
       if (message) setAuthError(message);
     });
@@ -141,6 +211,7 @@ export default function App() {
     return onAuthStateChanged(firebaseAuth, (nextUser) => {
       if (!nextUser) {
         setUser(null);
+        setSavedIds([]);
         saveStoredSession(null);
         setProfileReady(false);
         return;
@@ -151,8 +222,15 @@ export default function App() {
       saveStoredSession(next);
 
       registerUser(next)
-        .then(() => setProfileReady(true))
-        .catch((error) => setAuthError(friendlyAuthError(error)));
+        .then(() => {
+          setProfileReady(true);
+          setAuthError("");
+        })
+        .catch((error) => {
+          logAuthError("Saving signed-in user profile", error);
+          setProfileReady(false);
+          setAuthError(friendlyProfileSaveError(error));
+        });
     });
   }, []);
 
@@ -196,6 +274,7 @@ export default function App() {
       await signInWithPopup(auth, new GoogleAuthProvider());
       setAuthOpen(false);
     } catch (error) {
+      logAuthError("Google sign-in", error);
       const code = (error as { code?: string })?.code;
 
       if (code === "auth/popup-blocked") {
@@ -236,18 +315,39 @@ export default function App() {
             password,
           );
 
-          if (name.trim()) {
-            await updateProfile(credential.user, {
-              displayName: name.trim(),
-            });
-          }
-
           const created = toAppUser(credential.user, {
+            displayName: name.trim(),
             phoneNumber: phone?.trim() || null,
           });
           setUser(created);
+          setMeetup(created.meetupPreference || "Student Center");
           saveStoredSession(created);
-          await registerUser(created).catch(() => undefined);
+
+          let profileError: unknown;
+          if (name.trim()) {
+            try {
+              await updateProfile(credential.user, {
+                displayName: name.trim(),
+              });
+            } catch (error) {
+              logAuthError("Updating new account profile", error);
+              profileError = error;
+            }
+          }
+
+          try {
+            await registerUser(created);
+            setProfileReady(true);
+          } catch (error) {
+            logAuthError("Saving new account profile", error);
+            profileError = profileError || error;
+            setProfileReady(false);
+          }
+
+          setAuthOpen(false);
+          if (profileError) {
+            setAuthError(friendlyProfileSaveError(profileError));
+          }
         } else {
           const credential = await signInWithEmailAndPassword(
             auth,
@@ -257,9 +357,8 @@ export default function App() {
           const loggedIn = toAppUser(credential.user);
           setUser(loggedIn);
           saveStoredSession(loggedIn);
+          setAuthOpen(false);
         }
-
-        setAuthOpen(false);
       } else {
         // Campus Demo Mode Simulation (realistic latency for loading spinner)
         await new Promise((resolve) => setTimeout(resolve, 500));
@@ -313,6 +412,10 @@ export default function App() {
         }
       }
     } catch (error) {
+      logAuthError(
+        mode === "signUp" ? "Creating email/password account" : "Email/password sign-in",
+        error,
+      );
       setAuthError(friendlyAuthError(error));
     } finally {
       setAuthBusy(false);
@@ -395,6 +498,44 @@ export default function App() {
     }
   };
 
+  const handleSaveListing = async (listingId: string) => {
+    if (!listingId || !user || user.uid === DEMO_USER.uid) {
+      openAuth("signIn");
+      return;
+    }
+
+    if (!db) {
+      return;
+    }
+
+    const alreadySaved = savedIds.includes(listingId);
+
+    try {
+      if (alreadySaved) {
+        await deleteDoc(doc(db, "users", user.uid, "saved", listingId));
+        setSavedIds((current) => current.filter((id) => id !== listingId));
+        return;
+      }
+
+      await setDoc(
+        doc(db, "users", user.uid, "saved", listingId),
+        {
+          userId: user.uid,
+          listingId,
+        },
+        { merge: true },
+      );
+
+      setSavedIds((current) =>
+        current.includes(listingId) ? current : [...current, listingId],
+      );
+    } catch (error) {
+      setAuthError(friendlyProfileSaveError(error));
+    }
+  };
+
+  const savedItems = seedListings.filter((item) => savedIds.includes(item.id));
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
@@ -421,10 +562,11 @@ export default function App() {
           items={seedListings}
           query=""
           category="All items"
-          savedIds={[]}
+          savedIds={savedIds}
+          userPhotoURL={user?.photoURL}
           onQueryChange={() => undefined}
           onCategoryChange={() => undefined}
-          onSave={() => undefined}
+          onSave={handleSaveListing}
           onOpen={() => undefined}
           onProfile={() => setTab("Profile")}
         />
@@ -432,8 +574,8 @@ export default function App() {
 
       {tab === "Saved" && (
         <SavedPage
-          items={[]}
-          onSave={() => undefined}
+          items={savedItems}
+          onSave={handleSaveListing}
           onOpen={() => undefined}
         />
       )}

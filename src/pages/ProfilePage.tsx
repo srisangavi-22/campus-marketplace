@@ -48,6 +48,7 @@ export function ProfilePage({
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState("");
   const [resetNotice, setResetNotice] = useState("");
+  const [failedPhotoURL, setFailedPhotoURL] = useState<string | null>(null);
 
   const isDemo = user?.uid === DEMO_USER.uid;
 
@@ -131,10 +132,11 @@ export function ProfilePage({
 
       {/* Main Profile Hero Card */}
       <View style={styles.heroCard}>
-        {user?.photoURL ? (
+        {user?.photoURL && user.photoURL !== failedPhotoURL ? (
           <Image
             source={{ uri: user.photoURL }}
             style={styles.avatarImage}
+            onError={() => setFailedPhotoURL(user.photoURL || null)}
           />
         ) : (
           <View style={styles.avatarCircle}>
