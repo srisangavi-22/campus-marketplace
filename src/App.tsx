@@ -251,6 +251,7 @@ export default function App() {
 
       const next = toAppUser(nextUser);
       setUser(next);
+      setTab("Explore");
       saveStoredSession(next);
 
       registerUser(next)
@@ -276,7 +277,28 @@ export default function App() {
         const saved = snapshot.data()?.meetupPreference;
         if (typeof saved === "string") setMeetup(saved);
       },
-      () => undefined,
+      (error) => {
+        logAuthError("Listening to signed-in user profile", error);
+        if (error.code !== "unavailable" && error.code !== "deadline-exceeded") {
+          return;
+        }
+
+        setAuthError("Firebase is unavailable. You have been signed out.");
+        setUser(null);
+        setSavedIds([]);
+        saveStoredSession(null);
+        setProfileReady(false);
+        setMeetup("North Campus");
+        setTab("Explore");
+        if (auth) {
+          signOut(auth).catch((signOutError) => {
+            logAuthError(
+              "Signing out after Firebase became unavailable",
+              signOutError,
+            );
+          });
+        }
+      },
     );
   }, [user?.uid]);
 
@@ -369,6 +391,7 @@ export default function App() {
             photoURL,
           });
           setUser(created);
+          setTab("Explore");
           setMeetup(created.meetupPreference || "Student Center");
           saveStoredSession(created);
 
@@ -409,6 +432,7 @@ export default function App() {
           );
           const loggedIn = toAppUser(credential.user);
           setUser(loggedIn);
+          setTab("Explore");
           saveStoredSession(loggedIn);
           setAuthOpen(false);
         }
@@ -448,6 +472,7 @@ export default function App() {
           });
           saveDemoAccounts(accounts);
           setUser(newUser);
+          setTab("Explore");
           saveStoredSession(newUser);
           setAuthOpen(false);
         } else {
@@ -459,6 +484,7 @@ export default function App() {
           }
 
           setUser(account.user);
+          setTab("Explore");
           saveStoredSession(account.user);
           setMeetup(account.user.meetupPreference || "North Campus");
           setAuthOpen(false);
@@ -501,6 +527,7 @@ export default function App() {
   /* Demo mode: lets the app work end-to-end without Firebase keys */
   const continueAsGuest = () => {
     setUser(DEMO_USER);
+    setTab("Explore");
     saveStoredSession(DEMO_USER);
     setMeetup(DEMO_USER.meetupPreference || "Student Center");
     closeAuth();
