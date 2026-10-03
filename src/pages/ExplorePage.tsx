@@ -10,12 +10,14 @@ import {
 import { ListingCard } from "../components/ListingCard";
 import { categories } from "../data";
 import { Listing } from "../types";
+import { AppUser } from "../authHelpers";
 
 export function ExplorePage({
   items,
   query,
   category,
   savedIds,
+  user,
   onQueryChange,
   onCategoryChange,
   onSave,
@@ -26,12 +28,25 @@ export function ExplorePage({
   query: string;
   category: string;
   savedIds: string[];
+  user?: AppUser | null;
   onQueryChange: (value: string) => void;
   onCategoryChange: (value: string) => void;
   onSave: (id: string) => void;
   onOpen: (item: Listing) => void;
   onProfile: () => void;
 }) {
+  const initials = user?.displayName
+    ? user.displayName
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((part) => part[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase()
+    : user?.email
+      ? user.email.slice(0, 2).toUpperCase()
+      : "?";
+
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.header}>
@@ -42,7 +57,7 @@ export function ExplorePage({
           </Text>
         </View>
         <Pressable style={styles.avatar} onPress={onProfile}>
-          <Text style={styles.avatarText}>?</Text>
+          <Text style={styles.avatarText}>{user ? initials : "?"}</Text>
         </Pressable>
       </View>
       <View style={styles.search}>
