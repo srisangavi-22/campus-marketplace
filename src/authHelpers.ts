@@ -271,31 +271,5 @@ export function saveDemoAccounts(accounts: DemoAccount[]): void {
   }
 }
 
-const SAVED_ITEMS_PREFIX = "campus_marketplace_saved_";
 
-export function loadUserSavedIds(userId?: string | null): string[] {
-  if (typeof window === "undefined" || !window.localStorage) return [];
-  try {
-    const key = `${SAVED_ITEMS_PREFIX}${userId || "guest"}`;
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-export function saveUserSavedIds(
-  userId: string | null | undefined,
-  ids: string[],
-): void {
-  if (typeof window === "undefined" || !window.localStorage) return;
-  try {
-    const key = `${SAVED_ITEMS_PREFIX}${userId || "guest"}`;
-    window.localStorage.setItem(key, JSON.stringify(ids));
-  } catch {
-    // Ignore storage quota
-  }
-}
 
