@@ -14,11 +14,13 @@ export function ListingDetailsModal({
   saved,
   onClose,
   onSave,
+  onMessageSeller,
 }: {
   item: Listing | null;
   saved: boolean;
   onClose: () => void;
   onSave: () => void;
+  onMessageSeller?: () => void;
 }) {
   return (
     <Modal
@@ -62,22 +64,34 @@ export function ListingDetailsModal({
                 {item.description ? (
                   <Text style={styles.description}>{item.description}</Text>
                 ) : null}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    saved ? "Remove listing from saved items" : "Save listing"
-                  }
-                  accessibilityState={{ selected: saved }}
-                  onPress={onSave}
-                  style={[styles.saveButton, saved && styles.savedButton]}
-                >
-                  <Text style={[styles.saveIcon, saved && styles.savedIcon]}>
-                    {saved ? "\u2665" : "\u2661"}
-                  </Text>
-                  <Text style={[styles.saveText, saved && styles.savedText]}>
-                    {saved ? "Saved" : "Save listing"}
-                  </Text>
-                </Pressable>
+                <View style={styles.actions}>
+                  {onMessageSeller && item.sellerId ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Message seller"
+                      onPress={onMessageSeller}
+                      style={styles.messageButton}
+                    >
+                      <Text style={styles.messageText}>Message seller</Text>
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      saved ? "Remove listing from saved items" : "Save listing"
+                    }
+                    accessibilityState={{ selected: saved }}
+                    onPress={onSave}
+                    style={[styles.saveButton, saved && styles.savedButton]}
+                  >
+                    <Text style={[styles.saveIcon, saved && styles.savedIcon]}>
+                      {saved ? "\u2665" : "\u2661"}
+                    </Text>
+                    <Text style={[styles.saveText, saved && styles.savedText]}>
+                      {saved ? "Saved" : "Save listing"}
+                    </Text>
+                  </Pressable>
+                </View>
               </View>
             </ScrollView>
           ) : null}
@@ -150,7 +164,13 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     marginTop: 18,
   },
+  actions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 22,
+  },
   saveButton: {
+    flex: 1,
     minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
@@ -158,11 +178,19 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: "#EAF2EC",
     borderRadius: 12,
-    marginTop: 22,
   },
   savedButton: { backgroundColor: "#F8EDEF" },
   saveIcon: { color: "#365B4C", fontSize: 20 },
   savedIcon: { color: "#C3535B" },
   saveText: { color: "#386B54", fontSize: 14, fontWeight: "700" },
   savedText: { color: "#A43E48" },
+  messageButton: {
+    flex: 1,
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    backgroundColor: "#1F5D4C",
+  },
+  messageText: { color: "#FFF", fontSize: 14, fontWeight: "800" },
 });

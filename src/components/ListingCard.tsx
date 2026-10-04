@@ -19,6 +19,7 @@ export function ListingCard({
           <Image
             source={{ uri: item.image }}
             style={styles.image}
+            resizeMode="contain"
           />
         </View>
         <View style={styles.body}>

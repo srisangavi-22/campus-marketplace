@@ -465,12 +465,14 @@ export function ExplorePage({
           </Text>
         }
         renderItem={({ item }) => (
-          <ListingCard
-            item={item}
-            saved={savedIds.includes(item.id)}
-            onSave={() => onSave(item.id)}
-            onOpen={() => onOpen(item)}
-          />
+          <View style={styles.listingColumn}>
+            <ListingCard
+              item={item}
+              saved={savedIds.includes(item.id)}
+              onSave={() => onSave(item.id)}
+              onOpen={() => onOpen(item)}
+            />
+          </View>
         )}
       />
     </ScrollView>
@@ -798,6 +800,12 @@ const styles = StyleSheet.create({
 
   columns: {
     gap: 14,
+  },
+
+  listingColumn: {
+    width: "48%",
+    flexGrow: 0,
+    flexShrink: 0,
   },
 
   empty: {

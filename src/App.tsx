@@ -17,6 +17,8 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
+  addDoc,
+  runTransaction,
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
@@ -41,9 +43,11 @@ import { MyListingsPage } from "./pages/MyListingsPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { SavedPage } from "./pages/SavedPage";
 import { ListingDetailsModal } from "./components/ListingDetailsModal";
+import { CreateListingInput, SellListingModal } from "./components/SellListingModal";
 import { seedListings } from "./data";
 import { auth, db, firebaseConfigured, storage } from "./firebase";
 import { Listing, Tab } from "./types";
+import { getEffectiveQuantity } from "./listingHelpers";
 import {
   AppUser,
   DEMO_USER,
@@ -56,6 +60,19 @@ import {
   getDemoAccounts,
   saveDemoAccounts,
 } from "./authHelpers";
+
+const MAX_PRODUCT_IMAGE_BYTES = 500 * 1024;
+
+function validateProductImageDataUrl(image: string): void {
+  const match = /^data:(image\/[^;]+);base64,(.+)$/.exec(image);
+  if (!match) {
+    throw new Error("Product image data is unavailable. Please choose another image.");
+  }
+  const encodedBytes = Math.ceil(match[2].length * 0.75);
+  if (encodedBytes > MAX_PRODUCT_IMAGE_BYTES) {
+    throw new Error("Image is too large. Please choose a smaller image.");
+  }
+}
 
 /* -------------------------------------------------------------
    User Authentication & Profile Synchronization with Firebase
@@ -181,10 +198,54 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All Categories");
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
+  const [listings, setListings] = useState<Listing[]>(seedListings);
+  const [sellOpen, setSellOpen] = useState(false);
+  const [inventoryError, setInventoryError] = useState("");
+  const [busyById, setBusyById] = useState<Record<string, boolean>>({});
+  const [editingListing, setEditingListing] = useState<Listing | null>(null);
+  const [deletingListing, setDeletingListing] = useState<Listing | null>(null);
+  const [messageConversationId, setMessageConversationId] = useState<string | null>(null);
+  const [messageProduct, setMessageProduct] = useState<Listing | null>(null);
   const pendingSavedIds = useRef(new Set<string>());
   const [meetup, setMeetup] = useState(
     user?.meetupPreference || user?.campus || "North Campus",
   );
+
+  useEffect(() => {
+    if (!db) {
+      setListings(seedListings);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(
+      collection(db, "listings"),
+      (snapshot) => {
+        const next = snapshot.docs.map((listingDocument) => {
+          const data = listingDocument.data();
+          return {
+            id: listingDocument.id,
+            title: typeof data.title === "string" ? data.title : "",
+            price: typeof data.price === "number" ? data.price : Number(data.price) || 0,
+            category: typeof data.category === "string" ? data.category : "",
+            seller: typeof data.seller === "string" ? data.seller : "Campus seller",
+            sellerId: typeof data.sellerId === "string" ? data.sellerId : undefined,
+            campus: typeof data.campus === "string" ? data.campus : "",
+            condition: typeof data.condition === "string" ? data.condition : "",
+            image: typeof data.image === "string" ? data.image : "",
+            description: typeof data.description === "string" ? data.description : undefined,
+            quantity: typeof data.quantity === "number" ? data.quantity : undefined,
+            status: data.status === "sold" ? "sold" : data.status === "available" ? "available" : undefined,
+          } satisfies Listing;
+        }).filter((listing) => listing.title && listing.image);
+        setListings(next);
+      },
+      (error) => {
+        logAuthError("Listening to listings", error);
+        setListings(seedListings);
+      },
+    );
+    return unsubscribe;
+  }, [db]);
 
   useEffect(() => {
     if (!user || user.uid === DEMO_USER.uid) {
@@ -637,6 +698,7 @@ export default function App() {
           userId,
           ids: current.ids.filter((id) => id !== listingId),
         };
+
       });
       setAuthError(friendlyProfileSaveError(error));
     } finally {
@@ -644,7 +706,174 @@ export default function App() {
     }
   };
 
-  const savedItems = seedListings.filter((item) => savedIds.includes(item.id));
+  const messageSeller = async (listing: Listing) => {
+    const firebaseUser = auth?.currentUser;
+    if (!firebaseUser || !db || !user || user.uid === DEMO_USER.uid) {
+      openAuth("signIn");
+      return;
+    }
+    if (!listing.sellerId || listing.sellerId === firebaseUser.uid) {
+      setAuthError("You cannot message yourself.");
+      return;
+    }
+
+    const memberIds = [firebaseUser.uid, listing.sellerId].sort();
+    const conversationId = memberIds.join("_");
+    try {
+      await setDoc(
+        doc(db, "conversations", conversationId),
+        {
+          memberIds,
+          memberNames: {
+            [firebaseUser.uid]: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Campus student",
+            [listing.sellerId]: listing.seller || "Campus student",
+          },
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+      setSelectedListing(null);
+      setMessageProduct(listing);
+      setMessageConversationId(conversationId);
+      setTab("Messages");
+    } catch (error) {
+      logAuthError("Opening seller conversation", error);
+      setAuthError("Could not open this conversation. Please try again.");
+    }
+  };
+
+  const publishListing = async (input: CreateListingInput) => {
+    const firebaseUser = auth?.currentUser;
+    if (!firebaseUser || !db || user?.uid !== firebaseUser.uid) {
+      throw new Error("Please sign in with Firebase before publishing a listing.");
+    }
+    const imageUri = input.imageUri;
+    if (!imageUri) throw new Error("Please select a product image.");
+    validateProductImageDataUrl(imageUri);
+    await addDoc(collection(db, "listings"), {
+      title: input.title,
+      price: input.price,
+      category: input.category,
+      condition: input.condition,
+      campus: input.campus,
+      description: input.description,
+      quantity: input.quantity,
+      status: "available",
+      image: imageUri,
+      sellerId: firebaseUser.uid,
+      seller: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Campus seller",
+      createdAt: serverTimestamp(),
+    });
+  };
+
+  const editListing = async (input: CreateListingInput) => {
+    const firebaseUser = auth?.currentUser;
+    const firestore = db;
+    if (!firebaseUser || !firestore || !editingListing || editingListing.sellerId !== firebaseUser.uid) {
+      throw new Error("You can only edit your own listings.");
+    }
+    const newImageUrl = input.imageUri || editingListing.image;
+    if (input.imageUri) validateProductImageDataUrl(input.imageUri);
+    await runTransaction(firestore, async (transaction) => {
+        const listingRef = doc(firestore, "listings", editingListing.id);
+        const snapshot = await transaction.get(listingRef);
+        if (!snapshot.exists() || snapshot.data().sellerId !== firebaseUser.uid) {
+          throw new Error("You do not own this listing.");
+        }
+        const quantity = input.quantity;
+        transaction.update(listingRef, {
+          title: input.title,
+          price: input.price,
+          category: input.category,
+          condition: input.condition,
+          campus: input.campus,
+          description: input.description,
+          quantity,
+          status: quantity > 0 ? "available" : "sold",
+          image: newImageUrl,
+          updatedAt: serverTimestamp(),
+        });
+      });
+    setEditingListing(null);
+  };
+
+  const deleteListing = async () => {
+    const firebaseUser = auth?.currentUser;
+    const firestore = db;
+    const listing = deletingListing;
+    if (!firebaseUser || !firestore || !listing || listing.sellerId !== firebaseUser.uid) {
+      setInventoryError("You can only delete your own listings.");
+      setDeletingListing(null);
+      return;
+    }
+    setBusyById((current) => ({ ...current, [listing.id]: true }));
+    try {
+      await runTransaction(firestore, async (transaction) => {
+        const listingRef = doc(firestore, "listings", listing.id);
+        const snapshot = await transaction.get(listingRef);
+        if (!snapshot.exists() || snapshot.data().sellerId !== firebaseUser.uid) {
+          throw new Error("You do not own this listing.");
+        }
+        transaction.delete(listingRef);
+      });
+      setDeletingListing(null);
+    } catch (error) {
+      setInventoryError(error instanceof Error ? error.message : "Could not delete this listing.");
+    } finally {
+      setBusyById((current) => {
+        const next = { ...current };
+        delete next[listing.id];
+        return next;
+      });
+    }
+  };
+
+  const runInventoryMutation = async (listing: Listing, operation: "increase" | "decrease" | "sale") => {
+    const firebaseUser = auth?.currentUser;
+    const firestore = db;
+    if (!firebaseUser || !firestore || listing.sellerId !== firebaseUser.uid) {
+      setInventoryError("You can only update listings that belong to your signed-in account.");
+      return;
+    }
+    if (busyById[listing.id]) return;
+    setBusyById((current) => ({ ...current, [listing.id]: true }));
+    setInventoryError("");
+    try {
+      await runTransaction(firestore, async (transaction) => {
+        const listingRef = doc(firestore, "listings", listing.id);
+        const snapshot = await transaction.get(listingRef);
+        if (!snapshot.exists()) throw new Error("This listing is no longer available.");
+        const latest = snapshot.data();
+        if (latest.sellerId !== firebaseUser.uid) throw new Error("You do not own this listing.");
+        const currentQuantity = getEffectiveQuantity({
+          ...listing,
+          quantity: typeof latest.quantity === "number" ? latest.quantity : undefined,
+          status: latest.status === "sold" ? "sold" : "available",
+        });
+        if (operation === "sale" && currentQuantity === 0) throw new Error("This item is already sold out.");
+        const nextQuantity = operation === "increase"
+          ? currentQuantity + 1
+          : Math.max(0, currentQuantity - 1);
+        transaction.update(listingRef, {
+          quantity: nextQuantity,
+          status: nextQuantity > 0 ? "available" : "sold",
+        });
+      });
+    } catch (error) {
+      setInventoryError(error instanceof Error ? error.message : "Could not update inventory.");
+    } finally {
+      setBusyById((current) => {
+        const next = { ...current };
+        delete next[listing.id];
+        return next;
+      });
+    }
+  };
+
+  const savedItems = listings.filter((item) => savedIds.includes(item.id));
+  const myListings = user
+    ? listings.filter((item) => item.sellerId === user.uid)
+    : [];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -669,7 +898,7 @@ export default function App() {
       {/* Placeholders for other team members' components */}
       {tab === "Explore" && (
         <ExplorePage
-          items={seedListings}
+          items={listings}
           query={query}
           category={category}
           savedIds={savedIds}
@@ -697,14 +926,32 @@ export default function App() {
       )}
 
       {tab === "Messages" && (
-        <MessagesPage onBrowse={() => setTab("Profile")} />
+        <MessagesPage
+          userId={user?.uid && user.uid !== DEMO_USER.uid ? user.uid : null}
+          initialConversationId={messageConversationId}
+          messageProduct={messageProduct}
+          onBrowse={() => setTab("Explore")}
+          onBackToInbox={() => {
+            setMessageConversationId(null);
+            setMessageProduct(null);
+          }}
+          onConversationOpened={() => setMessageProduct(null)}
+        />
       )}
 
       {tab === "MyListings" && (
         <MyListingsPage
-          items={[]}
-          onOpen={() => undefined}
-          onSell={() => undefined}
+          items={myListings}
+          onOpen={setSelectedListing}
+          onSell={() => setSellOpen(true)}
+          busyById={busyById}
+          error={inventoryError}
+          onClearError={() => setInventoryError("")}
+          onIncrease={(item) => void runInventoryMutation(item, "increase")}
+          onDecrease={(item) => void runInventoryMutation(item, "decrease")}
+          onRecordSale={(item) => void runInventoryMutation(item, "sale")}
+          onEdit={setEditingListing}
+          onDelete={setDeletingListing}
         />
       )}
 
@@ -720,7 +967,38 @@ export default function App() {
         onSave={() => {
           if (selectedListing) void handleSaveListing(selectedListing.id);
         }}
+        onMessageSeller={
+          selectedListing &&
+          user &&
+          selectedListing.sellerId &&
+          selectedListing.sellerId !== user.uid
+            ? () => void messageSeller(selectedListing)
+            : undefined
+        }
       />
+
+      <SellListingModal
+        visible={sellOpen || editingListing !== null}
+        listing={editingListing}
+        onClose={() => {
+          setSellOpen(false);
+          setEditingListing(null);
+        }}
+        onSubmit={editingListing ? editListing : publishListing}
+      />
+
+      <Modal visible={deletingListing !== null} transparent animationType="fade" onRequestClose={() => setDeletingListing(null)}>
+        <View style={styles.confirmBackdrop}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Delete listing?</Text>
+            <Text style={styles.confirmMessage}>{deletingListing?.title} will be permanently removed from the marketplace.</Text>
+            <View style={styles.confirmActions}>
+              <Pressable style={styles.confirmCancel} onPress={() => setDeletingListing(null)} disabled={!!(deletingListing && busyById[deletingListing.id])}><Text style={styles.confirmCancelText}>Cancel</Text></Pressable>
+              <Pressable style={styles.confirmDelete} onPress={() => void deleteListing()} disabled={!!(deletingListing && busyById[deletingListing.id])}><Text style={styles.confirmDeleteText}>{deletingListing && busyById[deletingListing.id] ? "Deleting..." : "Delete"}</Text></Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <AuthModal
         visible={authOpen}
@@ -1195,6 +1473,24 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F8F8F4",
   },
+  confirmBackdrop: {
+    flex: 1,
+    justifyContent: "center",
+    padding: 24,
+    backgroundColor: "rgba(15,40,33,.45)",
+  },
+  confirmCard: {
+    padding: 22,
+    borderRadius: 18,
+    backgroundColor: "#FFF",
+  },
+  confirmTitle: { color: "#173C34", fontSize: 21, fontWeight: "800" },
+  confirmMessage: { color: "#64736C", fontSize: 14, lineHeight: 20, marginTop: 10 },
+  confirmActions: { flexDirection: "row", gap: 10, marginTop: 22 },
+  confirmCancel: { flex: 1, minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: "#CBD8CE", alignItems: "center", justifyContent: "center" },
+  confirmCancelText: { color: "#365B4C", fontWeight: "800" },
+  confirmDelete: { flex: 1, minHeight: 46, borderRadius: 12, backgroundColor: "#B3434B", alignItems: "center", justifyContent: "center" },
+  confirmDeleteText: { color: "#FFF", fontWeight: "800" },
 
   nav: {
     position: "absolute",
