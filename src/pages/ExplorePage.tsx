@@ -153,11 +153,14 @@ export function ExplorePage({
 
     const minimum = parsePrice(fromPrice);
     const maximum = parsePrice(toPrice);
+    if (minimum !== null && minimum < 0) {
+      setPriceValidationError("Invalid price");
+      return;
+    }
     if (
       Number.isNaN(minimum) ||
       Number.isNaN(maximum) ||
-      (minimum !== null && minimum <= 0) ||
-      (maximum !== null && maximum <= 0)
+      (maximum !== null && maximum < 0)
     ) {
       setPriceValidationError("Enter positive prices (up to 2 decimals).");
       return;
@@ -346,7 +349,7 @@ export function ExplorePage({
               },
             ]}
           >
-            <Text style={styles.priceTitle}>{"Price Range ($0\u2013$1000)"}</Text>
+            <Text style={styles.priceTitle}>Price Range</Text>
 
             <View style={styles.pricePresets}>
               {pricePresets.map((preset) => {
