@@ -3,6 +3,36 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function owns(userId) { return signedIn() && request.auth.uid == userId; }
+    function validOwnReadStateUpdate() {
+      return request.resource.data.keys().hasAll(['lastReadAt'])
+        && request.resource.data.lastReadAt is map
+        && request.resource.data.lastReadAt[request.auth.uid] is timestamp
+        && (
+          !resource.data.keys().hasAll(['lastReadAt'])
+            ? request.resource.data.lastReadAt.keys().hasOnly([request.auth.uid])
+            : request.resource.data.lastReadAt.diff(resource.data.lastReadAt).affectedKeys().hasOnly([request.auth.uid])
+        );
+    }
+    function validOwnClearStateUpdate() {
+      return request.resource.data.keys().hasAll(['clearedAt'])
+        && request.resource.data.clearedAt is map
+        && request.resource.data.clearedAt[request.auth.uid] is timestamp
+        && (
+          !resource.data.keys().hasAll(['clearedAt'])
+            ? request.resource.data.clearedAt.keys().hasOnly([request.auth.uid])
+            : request.resource.data.clearedAt.diff(resource.data.clearedAt).affectedKeys().hasOnly([request.auth.uid])
+        );
+    }
+    function validOwnHiddenStateUpdate() {
+      return request.resource.data.keys().hasAll(['hiddenFor'])
+        && request.resource.data.hiddenFor is map
+        && request.resource.data.hiddenFor[request.auth.uid] is bool
+        && (
+          !resource.data.keys().hasAll(['hiddenFor'])
+            ? request.resource.data.hiddenFor.keys().hasOnly([request.auth.uid])
+            : request.resource.data.hiddenFor.diff(resource.data.hiddenFor).affectedKeys().hasOnly([request.auth.uid])
+        );
+    }
 
     match /listings/{listingId} {
       allow read: if true;
@@ -33,7 +63,16 @@ service cloud.firestore {
         && request.resource.data.memberIds[0] != request.resource.data.memberIds[1];
       allow update: if signedIn()
         && request.auth.uid in resource.data.memberIds
-        && request.resource.data.memberIds == resource.data.memberIds;
+        && request.resource.data.memberIds == resource.data.memberIds
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['lastReadAt', 'clearedAt'])
+          || (
+            (!request.resource.data.diff(resource.data).affectedKeys().hasAll(['lastReadAt'])
+              || validOwnReadStateUpdate())
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAll(['clearedAt'])
+              || validOwnClearStateUpdate())
+          )
+        );
       allow delete: if false;
       match /messages/{messageId} {
         allow read: if signedIn()
@@ -41,9 +80,62 @@ service cloud.firestore {
         allow create: if signedIn()
           && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds
           && request.resource.data.senderId == request.auth.uid
-          && request.resource.data.text is string
-          && request.resource.data.text.size() > 0;
-        allow update, delete: if false;
+          && (
+            (
+              request.resource.data.type == 'text'
+              && request.resource.data.keys().hasOnly(['type', 'senderId', 'text', 'createdAt', 'replyTo'])
+              && request.resource.data.text is string
+              && request.resource.data.text.size() > 0
+              && request.resource.data.createdAt is timestamp
+              && (
+                !request.resource.data.keys().hasAll(['replyTo'])
+                || (
+                  request.resource.data.replyTo is map
+                  && (
+                    (
+                      request.resource.data.replyTo.keys().hasOnly(['messageId', 'type', 'senderId', 'text'])
+                      && request.resource.data.replyTo.messageId is string
+                      && request.resource.data.replyTo.type == 'text'
+                      && request.resource.data.replyTo.senderId is string
+                      && request.resource.data.replyTo.text is string
+                    )
+                    ||
+                    (
+                      request.resource.data.replyTo.keys().hasOnly(['messageId', 'type', 'senderId', 'listingId', 'title', 'price'])
+                      && request.resource.data.replyTo.messageId is string
+                      && request.resource.data.replyTo.type == 'product_context'
+                      && request.resource.data.replyTo.senderId is string
+                      && request.resource.data.replyTo.listingId is string
+                      && request.resource.data.replyTo.title is string
+                      && request.resource.data.replyTo.price is number
+                    )
+                  )
+                )
+              )
+            )
+            ||
+            (
+              request.resource.data.type == 'product_context'
+              && request.resource.data.keys().hasOnly([
+                'type', 'listingId', 'title', 'price', 'image',
+                'quantity', 'status', 'senderId', 'createdAt'
+              ])
+              && request.resource.data.listingId is string
+              && request.resource.data.title is string
+              && request.resource.data.price is number
+              && request.resource.data.image is string
+              && request.resource.data.quantity is number
+              && (request.resource.data.status == 'available' || request.resource.data.status == 'sold')
+              && request.resource.data.createdAt is timestamp
+            )
+          );
+        allow update: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hiddenFor'])
+          && validOwnHiddenStateUpdate();
+        allow delete: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds
+          && resource.data.senderId == request.auth.uid;
       }
     }
   }
