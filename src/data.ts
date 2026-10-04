@@ -1,10 +1,11 @@
 import { Listing } from "./types";
 
 export const categories = [
-  "All items",
+  "All Categories",
   "Textbooks",
   "Furniture",
   "Tech",
+  "Electronics",
   "Fashion",
 ];
 
