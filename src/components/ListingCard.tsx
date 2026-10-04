@@ -13,38 +13,41 @@ export function ListingCard({
   onOpen: () => void;
 }) {
   return (
-    <Pressable style={styles.card} onPress={onOpen}>
-      <View style={styles.photo}>
-        <Image source={{ uri: item.image }} style={styles.image} />
-        <Pressable
-          accessibilityLabel={saved ? "Remove saved item" : "Save item"}
-          style={styles.save}
-          onPress={(event) => {
-            event.stopPropagation();
-            onSave();
-          }}
-        >
-          <Text style={[styles.heart, saved && styles.red]}>
-            {saved ? "♥" : "♡"}
-          </Text>
-        </Pressable>
-      </View>
-      <View style={styles.body}>
-        <View style={styles.row}>
-          <Text style={styles.title} numberOfLines={2}>
-            {item.title}
-          </Text>
-          <Text style={styles.price}>${item.price}</Text>
+    <View style={styles.card}>
+      <Pressable style={styles.cardContent} onPress={onOpen}>
+        <View pointerEvents="none" style={styles.photo}>
+          <Image
+            source={{ uri: item.image }}
+            style={styles.image}
+          />
         </View>
-        <Text style={styles.muted}>
-          {item.condition} · {item.campus}
+        <View style={styles.body}>
+          <View style={styles.row}>
+            <Text style={styles.title} numberOfLines={2}>
+              {item.title}
+            </Text>
+            <Text style={styles.price}>${item.price}</Text>
+          </View>
+          <Text style={styles.muted}>
+            {item.condition} {"\u00b7"} {item.campus}
+          </Text>
+          <Text style={styles.tiny}>Listed by {item.seller}</Text>
+        </View>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={saved ? "Remove saved item" : "Save item"}
+        accessibilityState={{ selected: saved }}
+        style={styles.save}
+        onPress={onSave}
+      >
+        <Text style={[styles.heart, saved && styles.red]}>
+          {saved ? "\u2665" : "\u2661"}
         </Text>
-        <Text style={styles.tiny}>Listed by {item.seller}</Text>
-      </View>
-    </Pressable>
+      </Pressable>
+    </View>
   );
 }
-
 const styles = StyleSheet.create({
   card: {
     flex: 1,
@@ -54,10 +57,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E9ECE6",
   },
+  cardContent: { flex: 1 },
   photo: { height: 148, backgroundColor: "#E5ECE5" },
   image: { width: "100%", height: "100%" },
   save: {
     position: "absolute",
+    zIndex: 1,
+    elevation: 2,
     top: 10,
     right: 10,
     width: 32,

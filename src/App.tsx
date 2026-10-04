@@ -16,13 +16,12 @@ import {
   collection,
   deleteDoc,
   doc,
-  getDocs,
   onSnapshot,
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -41,9 +40,10 @@ import { MessagesPage } from "./pages/MessagesPage";
 import { MyListingsPage } from "./pages/MyListingsPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { SavedPage } from "./pages/SavedPage";
+import { ListingDetailsModal } from "./components/ListingDetailsModal";
 import { seedListings } from "./data";
 import { auth, db, firebaseConfigured, storage } from "./firebase";
-import { Tab } from "./types";
+import { Listing, Tab } from "./types";
 import {
   AppUser,
   DEMO_USER,
@@ -110,25 +110,6 @@ async function uploadProfilePhoto(
   return getDownloadURL(uploaded.ref);
 }
 
-async function loadSavedIdsForUser(uid: string) {
-  if (!db || !uid) return [];
-
-  try {
-    const snapshot = await getDocs(collection(db, "users", uid, "saved"));
-
-    return snapshot.docs
-      .map((document) => document.data())
-      .filter(
-        (data): data is { listingId: string } =>
-          typeof data?.listingId === "string",
-      )
-      .map((data) => data.listingId);
-  } catch (error) {
-    console.warn("Could not load saved listings:", error);
-    return [];
-  }
-}
-
 function friendlyProfileSaveError(error: unknown): string {
   const code =
     typeof error === "object" && error !== null && "code" in error
@@ -191,32 +172,57 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [profileReady, setProfileReady] = useState(false);
-  const [savedIds, setSavedIds] = useState<string[]>([]);
+  const [savedState, setSavedState] = useState<{
+    userId: string | null;
+    ids: string[];
+  }>({ userId: user?.uid ?? null, ids: [] });
+  const savedIds =
+    user && savedState.userId === user.uid ? savedState.ids : [];
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("All Categories");
+  const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
+  const pendingSavedIds = useRef(new Set<string>());
   const [meetup, setMeetup] = useState(
     user?.meetupPreference || user?.campus || "North Campus",
   );
 
   useEffect(() => {
     if (!user || user.uid === DEMO_USER.uid) {
-      setSavedIds([]);
+      setSavedState({ userId: user?.uid ?? null, ids: [] });
       return;
     }
 
     if (!db) {
-      setSavedIds([]);
+      setSavedState({ userId: user.uid, ids: [] });
       return;
     }
 
     let active = true;
+    const userId = user.uid;
+    setSavedState((current) =>
+      current.userId === userId ? current : { userId, ids: [] },
+    );
 
-    loadSavedIdsForUser(user.uid).then((ids) => {
-      if (active) {
-        setSavedIds(ids);
-      }
-    });
+    const unsubscribe = onSnapshot(
+      collection(db, "users", userId, "saved"),
+      (snapshot) => {
+        if (!active) return;
+        const ids = snapshot.docs.map((savedDocument) => {
+          const listingId = savedDocument.data().listingId;
+          return typeof listingId === "string" ? listingId : savedDocument.id;
+        });
+        setSavedState({ userId, ids });
+      },
+      (error) => {
+        if (!active) return;
+        logAuthError("Listening to saved listings", error);
+        setAuthError(friendlyProfileSaveError(error));
+      },
+    );
 
     return () => {
       active = false;
+      unsubscribe();
     };
   }, [user?.uid, db]);
 
@@ -242,7 +248,7 @@ export default function App() {
     return onAuthStateChanged(firebaseAuth, (nextUser) => {
       if (!nextUser) {
         setUser(null);
-        setSavedIds([]);
+        setSavedState({ userId: null, ids: [] });
         saveStoredSession(null);
         setProfileReady(false);
         setTab("Explore");
@@ -285,7 +291,7 @@ export default function App() {
 
         setAuthError("Firebase is unavailable. You have been signed out.");
         setUser(null);
-        setSavedIds([]);
+        setSavedState({ userId: null, ids: [] });
         saveStoredSession(null);
         setProfileReady(false);
         setMeetup("North Campus");
@@ -586,32 +592,55 @@ export default function App() {
     }
 
     if (!db) {
+      setAuthError(friendlyProfileSaveError({ code: "app/firestore-not-configured" }));
       return;
     }
 
+    const userId = user.uid;
+    const pendingKey = `${userId}:${listingId}`;
+    if (pendingSavedIds.current.has(pendingKey)) return;
+    pendingSavedIds.current.add(pendingKey);
+
     const alreadySaved = savedIds.includes(listingId);
+    setSavedState((current) => {
+      const currentIds = current.userId === userId ? current.ids : [];
+      const ids = alreadySaved
+        ? currentIds.filter((id) => id !== listingId)
+        : currentIds.includes(listingId)
+          ? currentIds
+          : [...currentIds, listingId];
+      return { userId, ids };
+    });
 
     try {
       if (alreadySaved) {
-        await deleteDoc(doc(db, "users", user.uid, "saved", listingId));
-        setSavedIds((current) => current.filter((id) => id !== listingId));
-        return;
+        await deleteDoc(doc(db, "users", userId, "saved", listingId));
+      } else {
+        await setDoc(
+          doc(db, "users", userId, "saved", listingId),
+          {
+            userId,
+            listingId,
+          },
+          { merge: true },
+        );
       }
-
-      await setDoc(
-        doc(db, "users", user.uid, "saved", listingId),
-        {
-          userId: user.uid,
-          listingId,
-        },
-        { merge: true },
-      );
-
-      setSavedIds((current) =>
-        current.includes(listingId) ? current : [...current, listingId],
-      );
     } catch (error) {
+      setSavedState((current) => {
+        if (current.userId !== userId) return current;
+        if (alreadySaved) {
+          return current.ids.includes(listingId)
+            ? current
+            : { userId, ids: [...current.ids, listingId] };
+        }
+        return {
+          userId,
+          ids: current.ids.filter((id) => id !== listingId),
+        };
+      });
       setAuthError(friendlyProfileSaveError(error));
+    } finally {
+      pendingSavedIds.current.delete(pendingKey);
     }
   };
 
@@ -641,17 +670,20 @@ export default function App() {
       {tab === "Explore" && (
         <ExplorePage
           items={seedListings}
-          query=""
-          category="All items"
+          query={query}
+          category={category}
           savedIds={savedIds}
           userPhotoURL={user?.photoURL}
           userDisplayName={
             user?.displayName || user?.email?.split("@")[0] || null
           }
-          onQueryChange={() => undefined}
-          onCategoryChange={() => undefined}
-          onSave={handleSaveListing}
-          onOpen={() => undefined}
+          onQueryChange={setQuery}
+          onCategoryChange={setCategory}
+          onSave={(listingId) => {
+            void handleSaveListing(listingId);
+            setTab("Saved");
+          }}
+          onOpen={setSelectedListing}
           onProfile={() => setTab("Profile")}
         />
       )}
@@ -660,7 +692,7 @@ export default function App() {
         <SavedPage
           items={savedItems}
           onSave={handleSaveListing}
-          onOpen={() => undefined}
+          onOpen={setSelectedListing}
         />
       )}
 
@@ -679,6 +711,15 @@ export default function App() {
       <BottomNav
         tab={tab}
         onChange={setTab}
+      />
+
+      <ListingDetailsModal
+        item={selectedListing}
+        saved={selectedListing ? savedIds.includes(selectedListing.id) : false}
+        onClose={() => setSelectedListing(null)}
+        onSave={() => {
+          if (selectedListing) void handleSaveListing(selectedListing.id);
+        }}
       />
 
       <AuthModal

@@ -17,10 +17,12 @@ import { categories } from "../data";
 import { Listing } from "../types";
 
 const pricePresets = [
-  { label: "Under Rs 1,000", from: "", to: "999" },
-  { label: "Rs 1,000–5,000", from: "1000", to: "5000" },
-  { label: "Rs 5,000–10,000", from: "5000", to: "10000" },
-  { label: "Rs 10,000+", from: "10000", to: "" },
+  { label: "$0\u2013$50", from: "0", to: "50" },
+  { label: "$50\u2013$100", from: "50", to: "100" },
+  { label: "$100\u2013$250", from: "100", to: "250" },
+  { label: "$250\u2013$500", from: "250", to: "500" },
+  { label: "$500\u2013$750", from: "500", to: "750" },
+  { label: "$750\u2013$1000", from: "750", to: "1000" },
 ];
 
 export function ExplorePage({
@@ -53,6 +55,7 @@ export function ExplorePage({
   const [appliedFromPrice, setAppliedFromPrice] = useState("");
   const [appliedToPrice, setAppliedToPrice] = useState("");
   const [pricePanelOpen, setPricePanelOpen] = useState(false);
+  const [priceValidationError, setPriceValidationError] = useState("");
 
   const [pricePanelPosition, setPricePanelPosition] = useState({
     left: 16,
@@ -92,24 +95,81 @@ export function ExplorePage({
   });
 
   const visibleItems = useMemo(() => {
-    const minimum = appliedFromPrice.trim()
-      ? Number(appliedFromPrice)
-      : null;
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    const normalizedCategory = category.trim().toLocaleLowerCase();
+    const hasPriceFilter = appliedFromPrice !== "" || appliedToPrice !== "";
+    const minimum = appliedFromPrice === "" ? 0 : Number(appliedFromPrice);
+    const maximum = appliedToPrice === "" ? 1000 : Number(appliedToPrice);
+    const isAllCategories =
+      normalizedCategory === "all categories" ||
+      normalizedCategory === "all items";
 
-    const maximum = appliedToPrice.trim()
-      ? Number(appliedToPrice)
-      : null;
+    return items.filter((item) => {
+      const matchesSearch =
+        normalizedQuery === "" ||
+        [
+          item.title,
+          item.category,
+          item.seller,
+          item.campus,
+          item.condition,
+          item.description || "",
+        ].some((field) => field.toLocaleLowerCase().includes(normalizedQuery));
+      const itemCategory = item.category.trim().toLocaleLowerCase();
+      const matchesCategory =
+        isAllCategories ||
+        itemCategory === normalizedCategory ||
+        (normalizedCategory === "electronics" && itemCategory === "tech");
+      const matchesPrice =
+        !hasPriceFilter ||
+        (item.price >= minimum && item.price <= maximum);
 
-    return items.filter(
-      (item) =>
-        (minimum === null || item.price >= minimum) &&
-        (maximum === null || item.price <= maximum)
-    );
-  }, [appliedFromPrice, appliedToPrice, items]);
+      return matchesSearch && matchesCategory && matchesPrice;
+    });
+  }, [appliedFromPrice, appliedToPrice, category, items, query]);
+
+  const hasPriceFilter = appliedFromPrice !== "" || appliedToPrice !== "";
+  const selectedPriceLabel = hasPriceFilter
+    ? `$${appliedFromPrice || "0"}\u2013$${appliedToPrice || "1000"}`
+    : "";
+
+  const updateFromPrice = (value: string) => {
+    setFromPrice(value);
+    setPriceValidationError("");
+  };
+
+  const updateToPrice = (value: string) => {
+    setToPrice(value);
+    setPriceValidationError("");
+  };
 
   const applyPriceFilter = () => {
-    setAppliedFromPrice(fromPrice);
-    setAppliedToPrice(toPrice);
+    const parsePrice = (value: string): number | null => {
+      const trimmed = value.trim();
+      if (trimmed === "") return null;
+      if (!/^\d+(?:\.\d{1,2})?$/.test(trimmed)) return Number.NaN;
+      return Number(trimmed);
+    };
+
+    const minimum = parsePrice(fromPrice);
+    const maximum = parsePrice(toPrice);
+    if (
+      Number.isNaN(minimum) ||
+      Number.isNaN(maximum) ||
+      (minimum !== null && (minimum < 0 || minimum > 1000)) ||
+      (maximum !== null && (maximum < 0 || maximum > 1000))
+    ) {
+      setPriceValidationError("Enter prices from $0 to $1000 (up to 2 decimals).");
+      return;
+    }
+    if (minimum !== null && maximum !== null && minimum > maximum) {
+      setPriceValidationError("Minimum price must be less than or equal to maximum price.");
+      return;
+    }
+
+    setPriceValidationError("");
+    setAppliedFromPrice(fromPrice.trim());
+    setAppliedToPrice(toPrice.trim());
     setPricePanelOpen(false);
   };
 
@@ -118,6 +178,7 @@ export function ExplorePage({
     setToPrice("");
     setAppliedFromPrice("");
     setAppliedToPrice("");
+    setPriceValidationError("");
     setPricePanelOpen(false);
   };
 
@@ -171,7 +232,7 @@ export function ExplorePage({
       </View>
 
       <View style={styles.search}>
-        <Text style={styles.icon}>⌕</Text>
+        <Text style={styles.icon}>{"\u2315"}</Text>
 
         <TextInput
           value={query}
@@ -248,13 +309,13 @@ export function ExplorePage({
                 styles.priceFilterButtonText,
                 (appliedFromPrice || appliedToPrice) &&
                   styles.activePriceFilterButtonText,
-              ]}
-            >
-              Price Range
+            ]}
+          >
+            {selectedPriceLabel ? `Price ${selectedPriceLabel}` : "Price Range"}
             </Text>
 
             <Text style={styles.priceChevron}>
-              {pricePanelOpen ? "⌃" : "⌄"}
+              {pricePanelOpen ? "\u2303" : "\u2304"}
             </Text>
           </Pressable>
         </View>
@@ -285,9 +346,7 @@ export function ExplorePage({
               },
             ]}
           >
-            <Text style={styles.priceTitle}>
-              Price Range
-            </Text>
+            <Text style={styles.priceTitle}>{"Price Range ($0\u2013$1000)"}</Text>
 
             <View style={styles.pricePresets}>
               {pricePresets.map((preset) => {
@@ -299,6 +358,7 @@ export function ExplorePage({
                     onPress={() => {
                       setFromPrice(preset.from);
                       setToPrice(preset.to);
+                      setPriceValidationError("");
                     }}
                     style={[
                       styles.pricePreset,
@@ -327,14 +387,14 @@ export function ExplorePage({
                 </Text>
 
                 <View style={styles.priceInput}>
-                  <Text style={styles.currency}>Rs</Text>
+                  <Text style={styles.currency}>$</Text>
 
                   <TextInput
                     value={fromPrice}
-                    onChangeText={setFromPrice}
+                    onChangeText={updateFromPrice}
                     placeholder="0"
                     placeholderTextColor="#87918C"
-                    keyboardType="numeric"
+                    keyboardType="decimal-pad"
                     style={styles.priceInputText}
                   />
                 </View>
@@ -346,19 +406,25 @@ export function ExplorePage({
                 </Text>
 
                 <View style={styles.priceInput}>
-                  <Text style={styles.currency}>Rs</Text>
+                  <Text style={styles.currency}>$</Text>
 
                   <TextInput
                     value={toPrice}
-                    onChangeText={setToPrice}
-                    placeholder="Any"
+                    onChangeText={updateToPrice}
+                    placeholder="1000"
                     placeholderTextColor="#87918C"
-                    keyboardType="numeric"
+                    keyboardType="decimal-pad"
                     style={styles.priceInputText}
                   />
                 </View>
               </View>
             </View>
+
+            {priceValidationError ? (
+              <Text accessibilityRole="alert" style={styles.priceError}>
+                {priceValidationError}
+              </Text>
+            ) : null}
 
             <View style={styles.priceActions}>
               <Pressable
@@ -658,6 +724,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     marginBottom: 6,
+  },
+
+  priceError: {
+    color: "#B33A3A",
+    fontSize: 11,
+    marginTop: 10,
   },
 
   priceInput: {
