@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import {
   FlatList,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -10,6 +11,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+
 import { ListingCard } from "../components/ListingCard";
 import { categories } from "../data";
 import { Listing } from "../types";
@@ -26,6 +28,8 @@ export function ExplorePage({
   query,
   category,
   savedIds,
+  userPhotoURL,
+  userDisplayName,
   onQueryChange,
   onCategoryChange,
   onSave,
@@ -36,6 +40,8 @@ export function ExplorePage({
   query: string;
   category: string;
   savedIds: string[];
+  userPhotoURL?: string | null;
+  userDisplayName?: string | null;
   onQueryChange: (value: string) => void;
   onCategoryChange: (value: string) => void;
   onSave: (id: string) => void;
@@ -47,30 +53,57 @@ export function ExplorePage({
   const [appliedFromPrice, setAppliedFromPrice] = useState("");
   const [appliedToPrice, setAppliedToPrice] = useState("");
   const [pricePanelOpen, setPricePanelOpen] = useState(false);
+
   const [pricePanelPosition, setPricePanelPosition] = useState({
     left: 16,
     top: 0,
   });
+
+  const [failedPhotoURL, setFailedPhotoURL] = useState<string | null>(null);
+
+  const userName = userDisplayName?.trim() || "";
+
+  const userInitials = userName
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
   const priceFilterButton = useRef<View>(null);
   const window = useWindowDimensions();
-  const pricePanelWidth = Math.min(360, Math.max(0, window.width - 32));
+
+  const pricePanelWidth = Math.min(
+    360,
+    Math.max(0, window.width - 32)
+  );
+
   const selectedPreset = pricePresets.find((preset) => {
     const matchesBound = (value: string, bound: string) =>
       bound === ""
         ? value.trim() === ""
         : value.trim() !== "" && Number(value) === Number(bound);
+
     return (
       matchesBound(fromPrice, preset.from) &&
       matchesBound(toPrice, preset.to)
     );
   });
+
   const visibleItems = useMemo(() => {
-    const minimum = appliedFromPrice.trim() ? Number(appliedFromPrice) : null;
-    const maximum = appliedToPrice.trim() ? Number(appliedToPrice) : null;
+    const minimum = appliedFromPrice.trim()
+      ? Number(appliedFromPrice)
+      : null;
+
+    const maximum = appliedToPrice.trim()
+      ? Number(appliedToPrice)
+      : null;
+
     return items.filter(
       (item) =>
         (minimum === null || item.price >= minimum) &&
-        (maximum === null || item.price <= maximum),
+        (maximum === null || item.price <= maximum)
     );
   }, [appliedFromPrice, appliedToPrice, items]);
 
@@ -79,6 +112,7 @@ export function ExplorePage({
     setAppliedToPrice(toPrice);
     setPricePanelOpen(false);
   };
+
   const clearPriceFilter = () => {
     setFromPrice("");
     setToPrice("");
@@ -86,19 +120,28 @@ export function ExplorePage({
     setAppliedToPrice("");
     setPricePanelOpen(false);
   };
+
   const togglePricePanel = () => {
     if (pricePanelOpen) {
       setPricePanelOpen(false);
       return;
     }
-    priceFilterButton.current?.measureInWindow((x, y, _width, height) => {
-      const maxLeft = Math.max(16, window.width - pricePanelWidth - 16);
-      setPricePanelPosition({
-        left: Math.min(Math.max(16, x), maxLeft),
-        top: y + height + 8,
-      });
-      setPricePanelOpen(true);
-    });
+
+    priceFilterButton.current?.measureInWindow(
+      (x, y, _width, height) => {
+        const maxLeft = Math.max(
+          16,
+          window.width - pricePanelWidth - 16
+        );
+
+        setPricePanelPosition({
+          left: Math.min(Math.max(16, x), maxLeft),
+          top: y + height + 8,
+        });
+
+        setPricePanelOpen(true);
+      }
+    );
   };
 
   return (
@@ -106,16 +149,30 @@ export function ExplorePage({
       <View style={styles.header}>
         <View>
           <Text style={styles.eyebrow}>CAMPUS MARKETPLACE</Text>
+
           <Text style={styles.heading}>
             Find your next{"\n"}favorite thing.
           </Text>
         </View>
+
         <Pressable style={styles.avatar} onPress={onProfile}>
-          <Text style={styles.avatarText}>?</Text>
+          {userPhotoURL && userPhotoURL !== failedPhotoURL ? (
+            <Image
+              source={{ uri: userPhotoURL }}
+              style={styles.avatarImage}
+              onError={() => setFailedPhotoURL(userPhotoURL)}
+            />
+          ) : (
+            <Text style={styles.avatarText}>
+              {userInitials || "?"}
+            </Text>
+          )}
         </Pressable>
       </View>
+
       <View style={styles.search}>
         <Text style={styles.icon}>⌕</Text>
+
         <TextInput
           value={query}
           onChangeText={onQueryChange}
@@ -124,13 +181,23 @@ export function ExplorePage({
           style={styles.input}
         />
       </View>
+
       <View style={styles.section}>
         <View>
-          <Text style={styles.sectionTitle}>Browse near you</Text>
-          <Text style={styles.muted}>Good finds, close by</Text>
+          <Text style={styles.sectionTitle}>
+            Browse near you
+          </Text>
+
+          <Text style={styles.muted}>
+            Good finds, close by
+          </Text>
         </View>
-        <Text style={styles.seeAll}>{visibleItems.length} items</Text>
+
+        <Text style={styles.seeAll}>
+          {visibleItems.length} items
+        </Text>
       </View>
+
       <View style={styles.filterRow}>
         <ScrollView
           horizontal
@@ -158,6 +225,7 @@ export function ExplorePage({
             </Pressable>
           ))}
         </ScrollView>
+
         <View
           ref={priceFilterButton}
           collapsable={false}
@@ -165,7 +233,9 @@ export function ExplorePage({
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityState={{ expanded: pricePanelOpen }}
+            accessibilityState={{
+              expanded: pricePanelOpen,
+            }}
             onPress={togglePricePanel}
             style={[
               styles.priceFilterButton,
@@ -182,12 +252,14 @@ export function ExplorePage({
             >
               Price Range
             </Text>
+
             <Text style={styles.priceChevron}>
               {pricePanelOpen ? "⌃" : "⌄"}
             </Text>
           </Pressable>
         </View>
       </View>
+
       <Modal
         visible={pricePanelOpen}
         transparent
@@ -202,6 +274,7 @@ export function ExplorePage({
             onPress={() => setPricePanelOpen(false)}
             style={StyleSheet.absoluteFill}
           />
+
           <View
             style={[
               styles.priceFilter,
@@ -212,10 +285,14 @@ export function ExplorePage({
               },
             ]}
           >
-            <Text style={styles.priceTitle}>Price Range</Text>
+            <Text style={styles.priceTitle}>
+              Price Range
+            </Text>
+
             <View style={styles.pricePresets}>
               {pricePresets.map((preset) => {
                 const isSelected = selectedPreset === preset;
+
                 return (
                   <Pressable
                     key={preset.label}
@@ -225,13 +302,15 @@ export function ExplorePage({
                     }}
                     style={[
                       styles.pricePreset,
-                      isSelected && styles.selectedPricePreset,
+                      isSelected &&
+                        styles.selectedPricePreset,
                     ]}
                   >
                     <Text
                       style={[
                         styles.pricePresetText,
-                        isSelected && styles.selectedPricePresetText,
+                        isSelected &&
+                          styles.selectedPricePresetText,
                       ]}
                     >
                       {preset.label}
@@ -240,11 +319,16 @@ export function ExplorePage({
                 );
               })}
             </View>
+
             <View style={styles.priceInputs}>
               <View style={styles.priceField}>
-                <Text style={styles.priceFieldLabel}>From price</Text>
+                <Text style={styles.priceFieldLabel}>
+                  From price
+                </Text>
+
                 <View style={styles.priceInput}>
                   <Text style={styles.currency}>Rs</Text>
+
                   <TextInput
                     value={fromPrice}
                     onChangeText={setFromPrice}
@@ -255,10 +339,15 @@ export function ExplorePage({
                   />
                 </View>
               </View>
+
               <View style={styles.priceField}>
-                <Text style={styles.priceFieldLabel}>To price</Text>
+                <Text style={styles.priceFieldLabel}>
+                  To price
+                </Text>
+
                 <View style={styles.priceInput}>
                   <Text style={styles.currency}>Rs</Text>
+
                   <TextInput
                     value={toPrice}
                     onChangeText={setToPrice}
@@ -270,23 +359,30 @@ export function ExplorePage({
                 </View>
               </View>
             </View>
+
             <View style={styles.priceActions}>
               <Pressable
                 style={styles.applyPriceButton}
                 onPress={applyPriceFilter}
               >
-                <Text style={styles.applyPriceText}>Apply</Text>
+                <Text style={styles.applyPriceText}>
+                  Apply
+                </Text>
               </Pressable>
+
               <Pressable
                 onPress={clearPriceFilter}
                 style={styles.clearPriceButton}
               >
-                <Text style={styles.clearPriceText}>Clear</Text>
+                <Text style={styles.clearPriceText}>
+                  Clear
+                </Text>
               </Pressable>
             </View>
           </View>
         </View>
       </Modal>
+
       <FlatList
         data={visibleItems}
         scrollEnabled={false}
@@ -311,14 +407,20 @@ export function ExplorePage({
     </ScrollView>
   );
 }
+
 const styles = StyleSheet.create({
-  content: { padding: 20, paddingBottom: 110 },
+  content: {
+    padding: 20,
+    paddingBottom: 110,
+  },
+
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     paddingTop: 28,
     paddingBottom: 24,
   },
+
   eyebrow: {
     color: "#65766D",
     fontSize: 11,
@@ -326,12 +428,14 @@ const styles = StyleSheet.create({
     letterSpacing: 1.8,
     marginBottom: 8,
   },
+
   heading: {
     color: "#173C34",
     fontSize: 30,
     lineHeight: 34,
     fontWeight: "800",
   },
+
   avatar: {
     width: 42,
     height: 42,
@@ -340,7 +444,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: { color: "#225347", fontWeight: "800" },
+
+  avatarText: {
+    color: "#225347",
+    fontWeight: "800",
+  },
+
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 21,
+  },
+
   search: {
     height: 52,
     backgroundColor: "#FFF",
@@ -351,8 +466,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E6E9E2",
   },
-  icon: { color: "#49635A", fontSize: 28, marginRight: 8 },
-  input: { flex: 1, color: "#173C34", fontSize: 14 },
+
+  icon: {
+    color: "#49635A",
+    fontSize: 28,
+    marginRight: 8,
+  },
+
+  input: {
+    flex: 1,
+    color: "#173C34",
+    fontSize: 14,
+  },
+
   section: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -360,17 +486,41 @@ const styles = StyleSheet.create({
     marginTop: 32,
     marginBottom: 16,
   },
+
   sectionTitle: {
     color: "#173C34",
     fontSize: 20,
     fontWeight: "800",
     marginBottom: 4,
   },
-  muted: { color: "#87918C", fontSize: 12 },
-  seeAll: { color: "#23775D", fontWeight: "700", fontSize: 12 },
-  filterRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  categoryScroller: { flex: 1, minWidth: 0 },
-  categories: { gap: 8, paddingBottom: 22 },
+
+  muted: {
+    color: "#87918C",
+    fontSize: 12,
+  },
+
+  seeAll: {
+    color: "#23775D",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+
+  filterRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+
+  categoryScroller: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  categories: {
+    gap: 8,
+    paddingBottom: 22,
+  },
+
   category: {
     height: 36,
     justifyContent: "center",
@@ -378,10 +528,25 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: "#ECEFE9",
   },
-  activeCategory: { backgroundColor: "#1F5D4C" },
-  categoryText: { color: "#64736C", fontSize: 12, fontWeight: "700" },
-  activeText: { color: "#FFF" },
-  priceFilterButtonWrapper: { paddingBottom: 22 },
+
+  activeCategory: {
+    backgroundColor: "#1F5D4C",
+  },
+
+  categoryText: {
+    color: "#64736C",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  activeText: {
+    color: "#FFF",
+  },
+
+  priceFilterButtonWrapper: {
+    paddingBottom: 22,
+  },
+
   priceFilterButton: {
     height: 36,
     flexDirection: "row",
@@ -393,14 +558,32 @@ const styles = StyleSheet.create({
     borderColor: "#E6E9E2",
     backgroundColor: "#FFF",
   },
+
   activePriceFilterButton: {
     backgroundColor: "#EEF5F0",
     borderColor: "#B8D0C2",
   },
-  priceFilterButtonText: { color: "#64736C", fontSize: 12, fontWeight: "700" },
-  activePriceFilterButtonText: { color: "#386B54" },
-  priceChevron: { color: "#64736C", fontSize: 14 },
-  priceModal: { flex: 1, backgroundColor: "rgba(23, 60, 52, 0.06)" },
+
+  priceFilterButtonText: {
+    color: "#64736C",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  activePriceFilterButtonText: {
+    color: "#386B54",
+  },
+
+  priceChevron: {
+    color: "#64736C",
+    fontSize: 14,
+  },
+
+  priceModal: {
+    flex: 1,
+    backgroundColor: "rgba(23, 60, 52, 0.06)",
+  },
+
   priceFilter: {
     position: "absolute",
     backgroundColor: "#FFF",
@@ -409,23 +592,29 @@ const styles = StyleSheet.create({
     borderColor: "#E6E9E2",
     padding: 16,
     shadowColor: "#173C34",
-    shadowOffset: { width: 0, height: 8 },
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
     shadowOpacity: 0.12,
     shadowRadius: 18,
     elevation: 10,
   },
+
   priceTitle: {
     color: "#173C34",
     fontSize: 16,
     fontWeight: "800",
     marginBottom: 12,
   },
+
   pricePresets: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
     rowGap: 8,
   },
+
   pricePreset: {
     width: "48%",
     minHeight: 36,
@@ -437,25 +626,40 @@ const styles = StyleSheet.create({
     borderColor: "#E6E9E2",
     backgroundColor: "#FFF",
   },
+
   selectedPricePreset: {
     backgroundColor: "#EEF5F0",
     borderColor: "#B8D0C2",
   },
+
   pricePresetText: {
     color: "#64736C",
     fontSize: 12,
     fontWeight: "600",
     textAlign: "center",
   },
-  selectedPricePresetText: { color: "#386B54" },
-  priceInputs: { flexDirection: "row", gap: 10, marginTop: 14 },
-  priceField: { flex: 1 },
+
+  selectedPricePresetText: {
+    color: "#386B54",
+  },
+
+  priceInputs: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+  },
+
+  priceField: {
+    flex: 1,
+  },
+
   priceFieldLabel: {
     color: "#64736C",
     fontSize: 11,
     fontWeight: "600",
     marginBottom: 6,
   },
+
   priceInput: {
     height: 40,
     flexDirection: "row",
@@ -466,14 +670,27 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: "#FFF",
   },
-  currency: { color: "#64736C", fontSize: 12, marginRight: 7 },
-  priceInputText: { flex: 1, color: "#173C34", fontSize: 13, padding: 0 },
+
+  currency: {
+    color: "#64736C",
+    fontSize: 12,
+    marginRight: 7,
+  },
+
+  priceInputText: {
+    flex: 1,
+    color: "#173C34",
+    fontSize: 13,
+    padding: 0,
+  },
+
   priceActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
     marginTop: 14,
   },
+
   applyPriceButton: {
     minWidth: 86,
     alignItems: "center",
@@ -482,10 +699,35 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: "#EAF2EC",
   },
-  applyPriceText: { color: "#386B54", fontSize: 13, fontWeight: "700" },
-  clearPriceButton: { paddingVertical: 9, paddingHorizontal: 4 },
-  clearPriceText: { color: "#64736C", fontSize: 13, fontWeight: "600" },
-  grid: { gap: 14 },
-  columns: { gap: 14 },
-  empty: { textAlign: "center", color: "#87918C", padding: 30 },
+
+  applyPriceText: {
+    color: "#386B54",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  clearPriceButton: {
+    paddingVertical: 9,
+    paddingHorizontal: 4,
+  },
+
+  clearPriceText: {
+    color: "#64736C",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+
+  grid: {
+    gap: 14,
+  },
+
+  columns: {
+    gap: 14,
+  },
+
+  empty: {
+    textAlign: "center",
+    color: "#87918C",
+    padding: 30,
+  },
 });

@@ -22,6 +22,7 @@ The app runs in demo mode until Firebase values are added to `.env`.
 3. Create a Cloud Firestore database.
 4. Copy the Web app configuration into `.env` using `.env.example`.
 5. Deploy `firestore.rules` with the Firebase CLI or paste them into the Firestore Rules tab.
+6. Enable Firebase Storage and deploy `storage.rules`; profile images are stored at `profilePhotos/{uid}` and are limited to the owner's account and images under 5 MB.
 
 The app uses:
 
@@ -41,4 +42,3 @@ The client Firebase configuration is intentionally public. Access control belong
 - Sign in anonymously for a frictionless student account.
 - View Saved, Messages, and Profile pages.
 =======
-
