@@ -1,4 +1,5 @@
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { getEffectiveStatus } from "../listingHelpers";
 import { Listing } from "../types";
 
 export function ListingCard({
@@ -12,6 +13,8 @@ export function ListingCard({
   onSave: () => void;
   onOpen: () => void;
 }) {
+  const status = getEffectiveStatus(item);
+
   return (
     <View style={styles.card}>
       <Pressable style={styles.cardContent} onPress={onOpen}>
@@ -33,6 +36,14 @@ export function ListingCard({
             {item.condition} {"\u00b7"} {item.campus}
           </Text>
           <Text style={styles.tiny}>Listed by {item.seller}</Text>
+          <Text
+            style={[
+              styles.status,
+              status === "sold" && styles.soldStatus,
+            ]}
+          >
+            {status === "sold" ? "SOLD OUT" : "AVAILABLE"}
+          </Text>
         </View>
       </Pressable>
       <Pressable
@@ -89,4 +100,6 @@ const styles = StyleSheet.create({
   price: { color: "#1C7057", fontSize: 14, fontWeight: "800" },
   muted: { color: "#87918C", fontSize: 12 },
   tiny: { color: "#A0AAA4", fontSize: 10, marginTop: 5 },
+  status: { color: "#1C7057", fontSize: 10, fontWeight: "800", marginTop: 5 },
+  soldStatus: { color: "#C3535B" },
 });

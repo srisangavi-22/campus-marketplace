@@ -38,7 +38,7 @@ import {
   View,
 } from "react-native";
 import { ExplorePage } from "./pages/ExplorePage";
-import { MessagesPage } from "./pages/MessagesPage";
+import { MessagesPage, useUnreadMessageState } from "./pages/MessagesPage";
 import { MyListingsPage } from "./pages/MyListingsPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { SavedPage } from "./pages/SavedPage";
@@ -47,7 +47,7 @@ import { CreateListingInput, SellListingModal } from "./components/SellListingMo
 import { seedListings } from "./data";
 import { auth, db, firebaseConfigured, storage } from "./firebase";
 import { Listing, Tab } from "./types";
-import { getEffectiveQuantity } from "./listingHelpers";
+import { getEffectiveQuantity, getEffectiveStatus } from "./listingHelpers";
 import {
   AppUser,
   DEMO_USER,
@@ -183,6 +183,9 @@ export default function App() {
     }
     return loadStoredSession();
   });
+  const unreadMessageState = useUnreadMessageState(
+    user?.uid && user.uid !== DEMO_USER.uid ? user.uid : null,
+  );
 
   const [authOpen, setAuthOpen] = useState(false);
   const [authInitialMode, setAuthInitialMode] = useState<"signIn" | "signUp">("signIn");
@@ -205,7 +208,6 @@ export default function App() {
   const [editingListing, setEditingListing] = useState<Listing | null>(null);
   const [deletingListing, setDeletingListing] = useState<Listing | null>(null);
   const [messageConversationId, setMessageConversationId] = useState<string | null>(null);
-  const [messageProduct, setMessageProduct] = useState<Listing | null>(null);
   const pendingSavedIds = useRef(new Set<string>());
   const [meetup, setMeetup] = useState(
     user?.meetupPreference || user?.campus || "North Campus",
@@ -732,8 +734,18 @@ export default function App() {
         },
         { merge: true },
       );
+      await addDoc(collection(db, "conversations", conversationId, "messages"), {
+        type: "product_context",
+        listingId: listing.id,
+        title: listing.title,
+        price: listing.price,
+        image: listing.image,
+        quantity: getEffectiveQuantity(listing),
+        status: getEffectiveStatus(listing),
+        senderId: firebaseUser.uid,
+        createdAt: serverTimestamp(),
+      });
       setSelectedListing(null);
-      setMessageProduct(listing);
       setMessageConversationId(conversationId);
       setTab("Messages");
     } catch (error) {
@@ -929,13 +941,12 @@ export default function App() {
         <MessagesPage
           userId={user?.uid && user.uid !== DEMO_USER.uid ? user.uid : null}
           initialConversationId={messageConversationId}
-          messageProduct={messageProduct}
+          unreadByConversation={unreadMessageState.byConversation}
+          latestByConversation={unreadMessageState.latestByConversation}
           onBrowse={() => setTab("Explore")}
           onBackToInbox={() => {
             setMessageConversationId(null);
-            setMessageProduct(null);
           }}
-          onConversationOpened={() => setMessageProduct(null)}
         />
       )}
 
@@ -958,6 +969,7 @@ export default function App() {
       <BottomNav
         tab={tab}
         onChange={setTab}
+        unreadMessageCount={unreadMessageState.total}
       />
 
       <ListingDetailsModal
@@ -1023,9 +1035,11 @@ export default function App() {
 function BottomNav({
   tab,
   onChange,
+  unreadMessageCount,
 }: {
   tab: Tab;
   onChange: (tab: Tab) => void;
+  unreadMessageCount: number;
 }) {
   return (
     <View style={styles.nav}>
@@ -1054,6 +1068,7 @@ function BottomNav({
         label="Messages"
         icon="□"
         active={tab === "Messages"}
+        badge={unreadMessageCount}
         onPress={() => onChange("Messages")}
       />
 
@@ -1071,18 +1086,25 @@ function NavItem({
   label,
   icon,
   active,
+  badge = 0,
   onPress,
 }: {
   label: string;
   icon: string;
   active: boolean;
+  badge?: number;
   onPress: () => void;
 }) {
   return (
     <Pressable style={styles.navItem} onPress={onPress}>
-      <Text style={[styles.navIcon, active && styles.navActive]}>
-        {icon}
-      </Text>
+      <View style={styles.navIconWrap}>
+        <Text style={[styles.navIcon, active && styles.navActive]}>{icon}</Text>
+        {badge > 0 ? (
+          <View style={styles.navBadge}>
+            <Text style={styles.navBadgeText}>{badge > 99 ? "99+" : badge}</Text>
+          </View>
+        ) : null}
+      </View>
       <Text style={[styles.navLabel, active && styles.navActive]}>
         {label}
       </Text>
@@ -1510,6 +1532,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     minWidth: 54,
   },
+  navIconWrap: { position: "relative" },
+  navBadge: {
+    position: "absolute",
+    top: -6,
+    right: -14,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: "#C3535B",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navBadgeText: { color: "#FFF", fontSize: 10, fontWeight: "800" },
 
   navIcon: {
     color: "#83918A",
