@@ -99,7 +99,7 @@ export function ExplorePage({
     const normalizedCategory = category.trim().toLocaleLowerCase();
     const hasPriceFilter = appliedFromPrice !== "" || appliedToPrice !== "";
     const minimum = appliedFromPrice === "" ? 0 : Number(appliedFromPrice);
-    const maximum = appliedToPrice === "" ? 1000 : Number(appliedToPrice);
+    const maximum = appliedToPrice === "" ? Number.POSITIVE_INFINITY : Number(appliedToPrice);
     const isAllCategories =
       normalizedCategory === "all categories" ||
       normalizedCategory === "all items";
@@ -156,10 +156,10 @@ export function ExplorePage({
     if (
       Number.isNaN(minimum) ||
       Number.isNaN(maximum) ||
-      (minimum !== null && (minimum < 0 || minimum > 1000)) ||
-      (maximum !== null && (maximum < 0 || maximum > 1000))
+      (minimum !== null && minimum <= 0) ||
+      (maximum !== null && maximum <= 0)
     ) {
-      setPriceValidationError("Enter prices from $0 to $1000 (up to 2 decimals).");
+      setPriceValidationError("Enter positive prices (up to 2 decimals).");
       return;
     }
     if (minimum !== null && maximum !== null && minimum > maximum) {
