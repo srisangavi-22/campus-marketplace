@@ -25,6 +25,7 @@ export function ProfilePage({
   onSignOut,
   onUpdateProfile,
   onResetPassword,
+  onOpenMyListings,
 }: {
   user: AppUser | null;
   meetup: string;
@@ -40,6 +41,7 @@ export function ProfilePage({
     phoneNumber?: string,
   ) => Promise<void>;
   onResetPassword?: (email: string) => Promise<boolean>;
+  onOpenMyListings?: () => void;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState("");
@@ -233,6 +235,14 @@ export function ProfilePage({
       {/* Account Settings Menu */}
       {user ? (
         <View style={styles.menu}>
+          {onOpenMyListings ? (
+            <Row
+              icon="📦"
+              label="My Listings"
+              value="View"
+              onPress={onOpenMyListings}
+            />
+          ) : null}
           <Row
             icon="👤"
             label="Edit Profile Details"
@@ -253,6 +263,15 @@ export function ProfilePage({
               onPress={handlePasswordReset}
             />
           ) : null}
+        </View>
+      ) : onOpenMyListings ? (
+        <View style={styles.menu}>
+          <Row
+            icon="📦"
+            label="My Listings"
+            value="View"
+            onPress={onOpenMyListings}
+          />
         </View>
       ) : null}
 

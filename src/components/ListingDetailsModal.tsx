@@ -1,6 +1,9 @@
+import { useRef } from "react";
 import {
+  Animated,
   Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,13 +18,43 @@ export function ListingDetailsModal({
   onClose,
   onSave,
   onMessageSeller,
+  showSave = true,
 }: {
   item: Listing | null;
   saved: boolean;
   onClose: () => void;
   onSave: () => void;
   onMessageSeller?: () => void;
+  showSave?: boolean;
 }) {
+  const heartScale = useRef(new Animated.Value(1)).current;
+  const isSavingRef = useRef(false);
+
+  const triggerHeartPop = () => {
+    heartScale.setValue(1);
+    Animated.sequence([
+      Animated.timing(heartScale, {
+        toValue: 1.35,
+        duration: 150,
+        useNativeDriver: Platform.OS !== "web",
+      }),
+      Animated.timing(heartScale, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: Platform.OS !== "web",
+      }),
+    ]).start();
+  };
+
+  const handleSave = () => {
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
+    triggerHeartPop();
+    onSave();
+    setTimeout(() => {
+      isSavingRef.current = false;
+    }, 350);
+  };
   return (
     <Modal
       visible={item !== null}
@@ -75,22 +108,26 @@ export function ListingDetailsModal({
                       <Text style={styles.messageText}>Message seller</Text>
                     </Pressable>
                   ) : null}
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      saved ? "Remove listing from saved items" : "Save listing"
-                    }
-                    accessibilityState={{ selected: saved }}
-                    onPress={onSave}
-                    style={[styles.saveButton, saved && styles.savedButton]}
-                  >
-                    <Text style={[styles.saveIcon, saved && styles.savedIcon]}>
-                      {saved ? "\u2665" : "\u2661"}
-                    </Text>
-                    <Text style={[styles.saveText, saved && styles.savedText]}>
-                      {saved ? "Saved" : "Save listing"}
-                    </Text>
-                  </Pressable>
+                  {showSave ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        saved ? "Remove listing from saved items" : "Save listing"
+                      }
+                      accessibilityState={{ selected: saved }}
+                      onPress={handleSave}
+                      style={[styles.saveButton, saved && styles.savedButton]}
+                    >
+                      <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+                        <Text style={[styles.saveIcon, saved && styles.savedIcon]}>
+                          {saved ? "\u2665" : "\u2661"}
+                        </Text>
+                      </Animated.View>
+                      <Text style={[styles.saveText, saved && styles.savedText]}>
+                        {saved ? "Saved" : "Save listing"}
+                      </Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               </View>
             </ScrollView>
