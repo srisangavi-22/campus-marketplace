@@ -904,6 +904,7 @@ export default function App() {
           onSignOut={handleSignOut}
           onUpdateProfile={handleUpdateProfile}
           onResetPassword={resetPassword}
+          onOpenMyListings={() => setTab("MyListings")}
         />
       )}
 
@@ -922,7 +923,6 @@ export default function App() {
           onCategoryChange={setCategory}
           onSave={(listingId) => {
             void handleSaveListing(listingId);
-            setTab("Saved");
           }}
           onOpen={setSelectedListing}
           onProfile={() => setTab("Profile")}
@@ -963,13 +963,16 @@ export default function App() {
           onRecordSale={(item) => void runInventoryMutation(item, "sale")}
           onEdit={setEditingListing}
           onDelete={setDeletingListing}
+          onBack={() => setTab("Profile")}
         />
       )}
 
       <BottomNav
         tab={tab}
         onChange={setTab}
+        onAdd={() => setSellOpen(true)}
         unreadMessageCount={unreadMessageState.total}
+        savedCount={savedIds.length}
       />
 
       <ListingDetailsModal
@@ -979,6 +982,7 @@ export default function App() {
         onSave={() => {
           if (selectedListing) void handleSaveListing(selectedListing.id);
         }}
+        showSave={!user || !selectedListing?.sellerId || selectedListing.sellerId !== user.uid}
         onMessageSeller={
           selectedListing &&
           user &&
@@ -1035,21 +1039,18 @@ export default function App() {
 function BottomNav({
   tab,
   onChange,
+  onAdd,
   unreadMessageCount,
+  savedCount = 0,
 }: {
   tab: Tab;
   onChange: (tab: Tab) => void;
+  onAdd: () => void;
   unreadMessageCount: number;
+  savedCount?: number;
 }) {
   return (
     <View style={styles.nav}>
-      <NavItem
-        label="Profile"
-        icon="☺"
-        active={tab === "Profile"}
-        onPress={() => onChange("Profile")}
-      />
-
       <NavItem
         label="Explore"
         icon="⌂"
@@ -1061,23 +1062,80 @@ function BottomNav({
         label="Saved"
         icon="♡"
         active={tab === "Saved"}
+        badge={savedCount}
         onPress={() => onChange("Saved")}
       />
 
       <NavItem
-        label="Messages"
-        icon="□"
-        active={tab === "Messages"}
-        badge={unreadMessageCount}
-        onPress={() => onChange("Messages")}
+        label="Add"
+        icon="+"
+        active={false}
+        onPress={onAdd}
       />
 
       <NavItem
-        label="My Listings"
-        icon="📦"
-        active={tab === "MyListings"}
-        onPress={() => onChange("MyListings")}
+        label="Messages"
+        active={tab === "Messages"}
+        badge={unreadMessageCount}
+        onPress={() => onChange("Messages")}
+        customIcon={() => (
+          <ChatBubbleIcon active={tab === "Messages"} />
+        )}
       />
+
+      <NavItem
+        label="Profile"
+        icon="☺"
+        active={tab === "Profile" || tab === "MyListings"}
+        onPress={() => onChange("Profile")}
+      />
+    </View>
+  );
+}
+
+function ChatBubbleIcon({
+  color = "#FFFFFF",
+  active,
+}: {
+  color?: string;
+  active?: boolean;
+}) {
+  return (
+    <View style={styles.chatIconWrap}>
+      <View
+        style={[
+          styles.chatBubble,
+          { borderColor: color },
+          active && { backgroundColor: color },
+        ]}
+      >
+        <View style={styles.chatDots}>
+          <View
+            style={[
+              styles.chatDot,
+              { backgroundColor: active ? "#2E7D63" : color },
+            ]}
+          />
+          <View
+            style={[
+              styles.chatDot,
+              { backgroundColor: active ? "#2E7D63" : color },
+            ]}
+          />
+          <View
+            style={[
+              styles.chatDot,
+              { backgroundColor: active ? "#2E7D63" : color },
+            ]}
+          />
+        </View>
+        <View
+          style={[
+            styles.chatTail,
+            { borderTopColor: color },
+          ]}
+        />
+      </View>
     </View>
   );
 }
@@ -1088,24 +1146,69 @@ function NavItem({
   active,
   badge = 0,
   onPress,
+  customIcon,
 }: {
   label: string;
-  icon: string;
+  icon?: string;
   active: boolean;
   badge?: number;
   onPress: () => void;
+  customIcon?: (color: string) => React.ReactNode;
 }) {
+  const [isHovered, setIsHovered] = useState(false);
+
   return (
-    <Pressable style={styles.navItem} onPress={onPress}>
+    <Pressable
+      style={styles.navItem}
+      onPress={onPress}
+      onHoverIn={() => setIsHovered(true)}
+      onHoverOut={() => setIsHovered(false)}
+      {...(Platform.OS === "web"
+        ? {
+            onMouseEnter: () => setIsHovered(true),
+            onMouseLeave: () => setIsHovered(false),
+          }
+        : {})}
+    >
       <View style={styles.navIconWrap}>
-        <Text style={[styles.navIcon, active && styles.navActive]}>{icon}</Text>
+        <View
+          style={[
+            styles.iconCircle,
+            active && styles.iconCircleActive,
+            isHovered && !active && styles.iconCircleHovered,
+            Platform.OS === "web" && ({
+              transitionProperty: "background-color, border-color",
+              transitionDuration: "200ms",
+              transitionTimingFunction: "ease-out",
+            } as any),
+          ]}
+        >
+          {customIcon ? (
+            customIcon("#FFFFFF")
+          ) : (
+            <Text style={styles.navIcon}>
+              {icon}
+            </Text>
+          )}
+        </View>
         {badge > 0 ? (
           <View style={styles.navBadge}>
             <Text style={styles.navBadgeText}>{badge > 99 ? "99+" : badge}</Text>
           </View>
         ) : null}
       </View>
-      <Text style={[styles.navLabel, active && styles.navActive]}>
+      <Text
+        style={[
+          styles.navLabel,
+          active && styles.navLabelActive,
+          isHovered && !active && styles.navLabelHovered,
+          Platform.OS === "web" && ({
+            transitionProperty: "color",
+            transitionDuration: "200ms",
+            transitionTimingFunction: "ease-out",
+          } as any),
+        ]}
+      >
         {label}
       </Text>
     </Pressable>
@@ -1520,9 +1623,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 82,
-    backgroundColor: "#FFF",
+    borderRadius: 30,
+    backgroundColor: "#173C34",
     borderTopWidth: 1,
-    borderTopColor: "#E8EBE5",
+    borderTopColor: "rgba(255, 255, 255, 0.12)",
     flexDirection: "row",
     justifyContent: "space-around",
     alignItems: "center",
@@ -1531,12 +1635,35 @@ const styles = StyleSheet.create({
   navItem: {
     alignItems: "center",
     minWidth: 54,
+    ...(Platform.OS === "web"
+      ? ({
+          cursor: "pointer",
+        } as any)
+      : {}),
   },
   navIconWrap: { position: "relative" },
+  iconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.18)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  iconCircleActive: {
+    backgroundColor: "#2E7D63",
+    borderColor: "#4BB894",
+  },
+  iconCircleHovered: {
+    backgroundColor: "rgba(255, 255, 255, 0.22)",
+    borderColor: "rgba(255, 255, 255, 0.32)",
+  },
   navBadge: {
     position: "absolute",
-    top: -6,
-    right: -14,
+    top: -3,
+    right: -4,
     minWidth: 18,
     height: 18,
     paddingHorizontal: 4,
@@ -1544,22 +1671,71 @@ const styles = StyleSheet.create({
     backgroundColor: "#C3535B",
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 3,
   },
   navBadgeText: { color: "#FFF", fontSize: 10, fontWeight: "800" },
 
   navIcon: {
-    color: "#83918A",
-    fontSize: 22,
+    color: "#FFFFFF",
+    fontSize: 20,
+    lineHeight: 22,
+    textAlign: "center",
   },
 
   navLabel: {
-    color: "#83918A",
+    color: "#FAF6EB",
     fontSize: 10,
-    marginTop: 3,
+    fontWeight: "600",
+    marginTop: 4,
+  },
+  navLabelActive: {
+    color: "#FFFDD0",
+    fontWeight: "800",
+  },
+  navLabelHovered: {
+    color: "#FFFDD0",
   },
 
   navActive: {
-    color: "#1D6B54",
+    color: "#FFFDD0",
+  },
+
+  chatIconWrap: {
+    width: 26,
+    height: 22,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  chatBubble: {
+    width: 22,
+    height: 15,
+    borderRadius: 6,
+    borderWidth: 1.8,
+    backgroundColor: "transparent",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+  },
+  chatDots: {
+    flexDirection: "row",
+    gap: 2.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chatDot: {
+    width: 2.5,
+    height: 2.5,
+    borderRadius: 1.25,
+  },
+  chatTail: {
+    position: "absolute",
+    bottom: -4,
+    left: 4,
+    width: 0,
+    height: 0,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+    borderRightColor: "transparent",
   },
 
   backdrop: {

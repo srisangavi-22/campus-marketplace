@@ -1,4 +1,13 @@
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { useRef, useState } from "react";
+import {
+  Animated,
+  Image,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { getEffectiveStatus } from "../listingHelpers";
 import { Listing } from "../types";
 
@@ -7,17 +16,61 @@ export function ListingCard({
   saved,
   onSave,
   onOpen,
+  showSave = true,
 }: {
   item: Listing;
   saved: boolean;
-  onSave: () => void;
+  onSave?: () => void;
   onOpen: () => void;
+  showSave?: boolean;
 }) {
   const status = getEffectiveStatus(item);
+  const [isHovered, setIsHovered] = useState(false);
+  const heartScale = useRef(new Animated.Value(1)).current;
+  const isSavingRef = useRef(false);
+
+  const triggerHeartPop = () => {
+    heartScale.setValue(1);
+    Animated.sequence([
+      Animated.timing(heartScale, {
+        toValue: 1.35,
+        duration: 150,
+        useNativeDriver: Platform.OS !== "web",
+      }),
+      Animated.timing(heartScale, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: Platform.OS !== "web",
+      }),
+    ]).start();
+  };
+
+  const handleSave = () => {
+    if (isSavingRef.current || !onSave) return;
+    isSavingRef.current = true;
+    triggerHeartPop();
+    onSave();
+    setTimeout(() => {
+      isSavingRef.current = false;
+    }, 350);
+  };
 
   return (
-    <View style={styles.card}>
-      <Pressable style={styles.cardContent} onPress={onOpen}>
+    <View
+      style={[styles.card, isHovered && styles.cardHovered]}
+      {...(Platform.OS === "web"
+        ? {
+            onMouseEnter: () => setIsHovered(true),
+            onMouseLeave: () => setIsHovered(false),
+          }
+        : {})}
+    >
+      <Pressable
+        style={styles.cardContent}
+        onPress={onOpen}
+        onHoverIn={() => setIsHovered(true)}
+        onHoverOut={() => setIsHovered(false)}
+      >
         <View pointerEvents="none" style={styles.photo}>
           <Image
             source={{ uri: item.image }}
@@ -46,17 +99,23 @@ export function ListingCard({
           </Text>
         </View>
       </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={saved ? "Remove saved item" : "Save item"}
-        accessibilityState={{ selected: saved }}
-        style={styles.save}
-        onPress={onSave}
-      >
-        <Text style={[styles.heart, saved && styles.red]}>
-          {saved ? "\u2665" : "\u2661"}
-        </Text>
-      </Pressable>
+      {showSave && onSave ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={saved ? "Remove saved item" : "Save item"}
+          accessibilityState={{ selected: saved }}
+          style={styles.save}
+          onPress={handleSave}
+          onHoverIn={() => setIsHovered(true)}
+          onHoverOut={() => setIsHovered(false)}
+        >
+          <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+            <Text style={[styles.heart, saved && styles.red]}>
+              {saved ? "\u2665" : "\u2661"}
+            </Text>
+          </Animated.View>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -68,6 +127,24 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "#E9ECE6",
+    ...(Platform.OS === "web"
+      ? ({
+          transitionProperty: "transform, box-shadow, border-color",
+          transitionDuration: "200ms",
+          transitionTimingFunction: "ease-out",
+          cursor: "pointer",
+        } as any)
+      : {}),
+  },
+  cardHovered: {
+    transform: [{ scale: 1.02 }],
+    zIndex: 2,
+    borderColor: "#CBD8CE",
+    shadowColor: "rgba(23,60,52,0.12)",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   cardContent: { flex: 1 },
   photo: { height: 148, backgroundColor: "#E5ECE5" },

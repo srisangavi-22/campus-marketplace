@@ -16,6 +16,7 @@ export function MyListingsPage({
   onRecordSale,
   onEdit,
   onDelete,
+  onBack,
 }: {
   items: Listing[];
   onOpen: (item: Listing) => void;
@@ -28,9 +29,15 @@ export function MyListingsPage({
   onRecordSale: (item: Listing) => void;
   onEdit: (item: Listing) => void;
   onDelete: (item: Listing) => void;
+  onBack?: () => void;
 }) {
   return (
     <ScrollView contentContainerStyle={styles.content}>
+      {onBack && (
+        <Pressable style={styles.backButton} onPress={onBack}>
+          <Text style={styles.backButtonText}>‹ Back to Profile</Text>
+        </Pressable>
+      )}
       <View style={styles.heading}>
         <PageTitle title="My listings" subtitle="Items you have posted to campus marketplace" />
         {items.length > 0 && <Pressable style={styles.newButton} onPress={onSell}><Text style={styles.newButtonText}>+ New listing</Text></Pressable>}
@@ -56,7 +63,7 @@ export function MyListingsPage({
           const status = getEffectiveStatus(item);
           const busy = !!busyById[item.id];
           return <View style={styles.listingColumn}>
-            <ListingCard item={item} saved={false} onSave={() => undefined} onOpen={() => onOpen(item)} />
+            <ListingCard item={item} saved={false} onOpen={() => onOpen(item)} showSave={false} />
             <View style={styles.inventory}>
               <Text style={styles.stockText}>Stock: {quantity}</Text>
               <Text style={[styles.statusText, status === "sold" && styles.soldText]}>{status === "sold" ? "SOLD OUT" : "AVAILABLE"}</Text>
@@ -79,6 +86,16 @@ export function MyListingsPage({
 }
 const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 110 },
+  backButton: {
+    paddingVertical: 6,
+    marginBottom: 4,
+    alignSelf: "flex-start",
+  },
+  backButtonText: {
+    color: "#1F5D4C",
+    fontSize: 15,
+    fontWeight: "700",
+  },
   columns: { gap: 14, justifyContent: "center" },
   grid: { gap: 14 },
   listingColumn: { flex: 1, minWidth: 0, maxWidth: 420 },
