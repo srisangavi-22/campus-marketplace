@@ -15,6 +15,7 @@ import {
 import { ListingCard } from "../components/ListingCard";
 import { categories } from "../data";
 import { Listing } from "../types";
+import { getUserInitials } from "../authHelpers";
 
 const pricePresets = [
   { label: "$0\u2013$50", from: "0", to: "50" },
@@ -64,15 +65,7 @@ export function ExplorePage({
 
   const [failedPhotoURL, setFailedPhotoURL] = useState<string | null>(null);
 
-  const userName = userDisplayName?.trim() || "";
-
-  const userInitials = userName
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  const userInitials = getUserInitials(userDisplayName);
 
   const priceFilterButton = useRef<View>(null);
   const window = useWindowDimensions();

@@ -2,6 +2,7 @@
   "expo": {
     "name": "campus-marketplace",
     "slug": "campus-marketplace",
+    "scheme": "campusmarketplace",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,7 +15,8 @@
           "cameraPermission": false,
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "ios": {
       "supportsTablet": true,

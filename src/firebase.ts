@@ -1,7 +1,14 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import {
+  getAuth,
+  initializeAuth,
+  // @ts-ignore getReactNativePersistence is available on React Native runtime
+  getReactNativePersistence,
+} from "firebase/auth";
 import { collection, doc, getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -18,7 +25,22 @@ export const firebaseApp = firebaseConfigured
     ? getApp()
     : initializeApp(firebaseConfig)
   : null;
-export const auth = firebaseApp ? getAuth(firebaseApp) : null;
+
+function createFirebaseAuth() {
+  if (!firebaseApp) return null;
+  if (Platform.OS === "web") {
+    return getAuth(firebaseApp);
+  }
+  try {
+    return initializeAuth(firebaseApp, {
+      persistence: getReactNativePersistence(AsyncStorage),
+    });
+  } catch (_error) {
+    return getAuth(firebaseApp);
+  }
+}
+
+export const auth = createFirebaseAuth();
 export const db = firebaseApp ? getFirestore(firebaseApp) : null;
 export const storage = firebaseApp ? getStorage(firebaseApp) : null;
 export const listingsCollection = db ? collection(db, "listings") : null;
