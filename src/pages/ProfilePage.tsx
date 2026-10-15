@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Modal,
@@ -11,8 +12,9 @@ import {
   TextInput,
   View,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { PageTitle } from "../components/PageTitle";
-import { AppUser, DEMO_USER, MEETUP_SPOTS } from "../authHelpers";
+import { AppUser, DEMO_USER, MEETUP_SPOTS, getUserInitials } from "../authHelpers";
 
 export function ProfilePage({
   user,
@@ -24,6 +26,8 @@ export function ProfilePage({
   onSignUp,
   onSignOut,
   onUpdateProfile,
+  onUpdatePhoto,
+  onRemovePhoto,
   onResetPassword,
   onOpenMyListings,
 }: {
@@ -40,6 +44,11 @@ export function ProfilePage({
     meetupPreference: string,
     phoneNumber?: string,
   ) => Promise<void>;
+  onUpdatePhoto?: (
+    uri: string,
+    contentType?: string | null,
+  ) => Promise<void>;
+  onRemovePhoto?: () => Promise<void>;
   onResetPassword?: (email: string) => Promise<boolean>;
   onOpenMyListings?: () => void;
 }) {
@@ -48,6 +57,8 @@ export function ProfilePage({
   const [editPhone, setEditPhone] = useState("");
   const [editMeetup, setEditMeetup] = useState(meetup);
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState("");
   const [editError, setEditError] = useState("");
   const [resetNotice, setResetNotice] = useState("");
   const [failedPhotoURL, setFailedPhotoURL] = useState<string | null>(null);
@@ -59,13 +70,58 @@ export function ProfilePage({
     user?.email?.split("@")[0] ||
     "Campus Student";
 
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  const initials = getUserInitials(user ? name : null);
+  const hasPhoto = Boolean(user?.photoURL && user.photoURL !== failedPhotoURL);
+
+  const handlePickPhoto = async () => {
+    if (!user) {
+      onSignIn();
+      return;
+    }
+
+    if (!onUpdatePhoto) return;
+
+    setPhotoError("");
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        if (asset.fileSize && asset.fileSize >= 5 * 1024 * 1024) {
+          setPhotoError("Profile photos must be smaller than 5 MB.");
+          return;
+        }
+
+        setFailedPhotoURL(null);
+        const mimeType = asset.mimeType || "image/jpeg";
+        const photoDataUrl = asset.base64
+          ? `data:${mimeType};base64,${asset.base64}`
+          : asset.uri;
+
+        // Start background upload without locking avatar indefinitely
+        setUploadingPhoto(true);
+        try {
+          await onUpdatePhoto(photoDataUrl, mimeType);
+        } finally {
+          setUploadingPhoto(false);
+        }
+      }
+    } catch (err) {
+      setPhotoError(
+        err instanceof Error
+          ? err.message
+          : "Could not update profile photo. Please try again.",
+      );
+      setUploadingPhoto(false);
+    }
+  };
 
   const openEditProfile = () => {
     setEditError("");
@@ -76,6 +132,8 @@ export function ProfilePage({
     setEditMeetup(user?.meetupPreference || meetup);
     setEditOpen(true);
   };
+
+
 
   const saveProfile = async () => {
     const trimmedName = editName.trim();
@@ -134,19 +192,47 @@ export function ProfilePage({
 
       {/* Main Profile Hero Card */}
       <View style={styles.heroCard}>
-        {user?.photoURL && user.photoURL !== failedPhotoURL ? (
-          <Image
-            source={{ uri: user.photoURL }}
-            style={styles.avatarImage}
-            onError={() => setFailedPhotoURL(user.photoURL || null)}
-          />
-        ) : (
-          <View style={styles.avatarCircle}>
-            <Text style={styles.initials}>
-              {user ? initials : "?"}
-            </Text>
-          </View>
-        )}
+        <Pressable
+          style={styles.avatarWrapper}
+          onPress={user ? handlePickPhoto : onSignIn}
+          disabled={uploadingPhoto}
+          accessibilityRole="button"
+          accessibilityLabel={
+            user
+              ? hasPhoto
+                ? "Change profile photo"
+                : "Add profile photo"
+              : "Sign in"
+          }
+        >
+          {hasPhoto ? (
+            <Image
+              source={{ uri: user!.photoURL! }}
+              style={styles.avatarImage}
+              onError={() => setFailedPhotoURL(user!.photoURL || null)}
+            />
+          ) : (
+            <View style={styles.avatarCircle}>
+              <Text style={styles.initials}>
+                {user ? initials : "?"}
+              </Text>
+            </View>
+          )}
+
+          {uploadingPhoto ? (
+            <View style={styles.avatarLoadingOverlay}>
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            </View>
+          ) : user ? (
+            <View style={styles.avatarBadge}>
+              <Text style={styles.avatarBadgeIcon}>📷</Text>
+            </View>
+          ) : null}
+        </Pressable>
+
+        {photoError ? (
+          <Text style={styles.photoErrorText}>{photoError}</Text>
+        ) : null}
 
         <Text style={styles.name}>{user ? name : "Campus Guest"}</Text>
 
@@ -459,11 +545,15 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
+  avatarWrapper: {
+    position: "relative",
+    marginBottom: 14,
+  },
+
   avatarImage: {
     width: 84,
     height: 84,
     borderRadius: 42,
-    marginBottom: 14,
   },
 
   avatarCircle: {
@@ -473,9 +563,50 @@ const styles = StyleSheet.create({
     backgroundColor: "#E2EFE6",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 14,
     borderWidth: 2,
     borderColor: "#C4DEC9",
+  },
+
+  avatarLoadingOverlay: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: 42,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  avatarBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#1A3C34",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2.5,
+    borderColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+
+  avatarBadgeIcon: {
+    fontSize: 14,
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 18,
+  },
+
+  photoErrorText: {
+    color: "#B3261E",
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 8,
+    textAlign: "center",
   },
 
   initials: {
@@ -921,6 +1052,8 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 13,
   },
+
+
 
   disabled: {
     opacity: 0.55,

@@ -1,4 +1,5 @@
 import { User } from "firebase/auth";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export interface AppUser {
   uid: string;
@@ -6,6 +7,8 @@ export interface AppUser {
   displayName: string | null;
   phoneNumber?: string | null;
   photoURL?: string | null;
+  googlePhotoURL?: string | null;
+  customPhotoURL?: string | null;
   campus?: string;
   meetupPreference?: string;
   createdAt?: string;
@@ -36,6 +39,29 @@ export const DEMO_USER: AppUser = {
 
 export const NO_FIREBASE_MESSAGE =
   "Firebase is not configured. Running in campus demo mode.";
+
+/**
+ * Extracts initials from a user's name following the rules:
+ * - "Siva Raga" -> "SR"
+ * - "John" -> "J"
+ * - "Siva R" -> "SR"
+ * - "John Michael Smith" -> "JS" (first and last name)
+ * - Empty/unknown name -> fallback "?"
+ */
+export function getUserInitials(name?: string | null): string {
+  if (!name) return "?";
+  const trimmed = name.trim();
+  if (!trimmed) return "?";
+
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) {
+    return parts[0].charAt(0).toUpperCase() || "?";
+  }
+  const first = parts[0].charAt(0).toUpperCase();
+  const last = parts[parts.length - 1].charAt(0).toUpperCase();
+  return `${first}${last}` || "?";
+}
 
 /**
  * Validates email format according to standard campus/web rules.
@@ -84,8 +110,10 @@ export function validateAuthInput(
     return "Please enter your password.";
   }
 
-  if (mode === "signUp" && password.length < 6) {
-    return "Password must be at least 6 characters.";
+  if (mode === "signUp") {
+    if (password.length < 6) {
+      return "Password must be at least 6 characters.";
+    }
   }
 
   return null;
@@ -165,7 +193,7 @@ export function getAuthErrorCode(error: unknown): string {
 
 export function logAuthError(context: string, error: unknown): void {
   const code = getAuthErrorCode(error);
-  console.error(`[auth] ${context} failed${code ? ` (${code})` : ""}`);
+  console.error(`[auth] ${context} failed${code ? ` (${code})` : ""}`, error);
 }
 
 /**
@@ -175,12 +203,35 @@ export function toAppUser(
   firebaseUser: User,
   extra?: Partial<AppUser>,
 ): AppUser {
+  // Extract google photo from providerData if available
+  const googleProvider = firebaseUser.providerData?.find(
+    (p) => p.providerId === "google.com",
+  );
+  const detectedGooglePhoto =
+    googleProvider?.photoURL ||
+    extra?.googlePhotoURL ||
+    (firebaseUser.photoURL && firebaseUser.photoURL.includes("googleusercontent.com")
+      ? firebaseUser.photoURL
+      : null);
+
+  const customPhoto =
+    extra?.customPhotoURL !== undefined
+      ? extra.customPhotoURL
+      : extra?.photoURL && extra.photoURL !== detectedGooglePhoto
+        ? extra.photoURL
+        : null;
+
+  const effectivePhotoURL =
+    customPhoto || detectedGooglePhoto || extra?.photoURL || firebaseUser.photoURL || null;
+
   return {
     uid: firebaseUser.uid,
     email: firebaseUser.email || null,
     displayName: firebaseUser.displayName || null,
     phoneNumber: firebaseUser.phoneNumber || extra?.phoneNumber || null,
-    photoURL: firebaseUser.photoURL || null,
+    photoURL: effectivePhotoURL,
+    googlePhotoURL: detectedGooglePhoto || null,
+    customPhotoURL: customPhoto,
     campus: extra?.campus || "North Campus",
     meetupPreference: extra?.meetupPreference || "Student Center",
     createdAt:
@@ -195,7 +246,7 @@ export function toAppUser(
 }
 
 /* -------------------------------------------------------------
-   Session & Demo Persistence (Web & Local Storage)
+   Session & Demo Persistence (AsyncStorage & Local Storage)
    Maintains user authentication state across app reload / reopen
 ---------------------------------------------------------------- */
 
@@ -203,25 +254,48 @@ const SESSION_STORAGE_KEY = "campus_marketplace_auth_user";
 const DEMO_ACCOUNTS_KEY = "campus_marketplace_demo_accounts";
 
 export function loadStoredSession(): AppUser | null {
-  if (typeof window === "undefined" || !window.localStorage) return null;
-  try {
-    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
   }
+  return null;
+}
+
+export async function loadAsyncStoredSession(): Promise<AppUser | null> {
+  try {
+    const raw = await AsyncStorage.getItem(SESSION_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // Fallback to web storage
+  }
+  return loadStoredSession();
 }
 
 export function saveStoredSession(user: AppUser | null): void {
-  if (typeof window === "undefined" || !window.localStorage) return;
   try {
     if (user) {
-      window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
+      AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user)).catch(() => {});
     } else {
-      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      AsyncStorage.removeItem(SESSION_STORAGE_KEY).catch(() => {});
     }
   } catch {
-    // Ignore storage quota or security errors
+    // Ignore AsyncStorage error
+  }
+
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      if (user) {
+        window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
+      } else {
+        window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore storage quota or security errors
+    }
   }
 }
 

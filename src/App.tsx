@@ -2,27 +2,35 @@ import { StatusBar } from "expo-status-bar";
 import * as ImagePicker from "expo-image-picker";
 import {
   GoogleAuthProvider,
+  browserSessionPersistence,
   createUserWithEmailAndPassword,
   getRedirectResult,
   onAuthStateChanged,
   sendPasswordResetEmail,
+  setPersistence,
+  signInWithCredential,
   signInWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
   signOut,
   updateProfile,
 } from "firebase/auth";
+import * as WebBrowser from "expo-web-browser";
+import * as Google from "expo-auth-session/providers/google";
+
+WebBrowser.maybeCompleteAuthSession();
 import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   addDoc,
   runTransaction,
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { getDownloadURL, ref, uploadBytesResumable, uploadString } from "firebase/storage";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -30,13 +38,13 @@ import {
   Modal,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { ExplorePage } from "./pages/ExplorePage";
 import { MessagesPage, useUnreadMessageState } from "./pages/MessagesPage";
 import { MyListingsPage } from "./pages/MyListingsPage";
@@ -56,6 +64,7 @@ import {
   toAppUser,
   validateAuthInput,
   loadStoredSession,
+  loadAsyncStoredSession,
   saveStoredSession,
   getDemoAccounts,
   saveDemoAccounts,
@@ -90,7 +99,7 @@ async function registerUser(user: AppUser) {
       ...(user.displayName ? { displayName: user.displayName } : {}),
       email: user.email || "",
       ...(user.phoneNumber ? { phoneNumber: user.phoneNumber } : {}),
-      photoURL: user.photoURL || null,
+      ...(user.photoURL ? { photoURL: user.photoURL } : {}),
       campus: user.campus || "North Campus",
       meetupPreference: user.meetupPreference || "Student Center",
       updatedAt: serverTimestamp(),
@@ -105,26 +114,69 @@ async function uploadProfilePhoto(
   contentType?: string | null,
 ): Promise<string> {
   if (!storage) {
-    throw new Error("Firebase Storage is not configured.");
-  }
-
-  const response = await fetch(uri);
-  if (!response.ok) {
-    throw new Error("Could not read the selected profile photo.");
-  }
-
-  const image = await response.blob();
-  const imageType = contentType || image.type || "image/jpeg";
-  if (!imageType.startsWith("image/")) {
-    throw new Error("The selected file is not a supported image.");
-  }
-  if (image.size >= 5 * 1024 * 1024) {
-    throw new Error("Profile photos must be smaller than 5 MB.");
+    return uri;
   }
 
   const photoRef = ref(storage, `profilePhotos/${uid}`);
-  const uploaded = await uploadBytes(photoRef, image, { contentType: imageType });
-  return getDownloadURL(uploaded.ref);
+
+  // 1. If uri is a base64 Data URL, upload directly using uploadString (avoids blob & network bridge issues)
+  if (uri.startsWith("data:")) {
+    try {
+      const uploadStringPromise = uploadString(photoRef, uri, "data_url").then((snapshot) =>
+        getDownloadURL(snapshot.ref),
+      );
+      const timeoutPromise = new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error("Storage upload timed out")), 8000),
+      );
+      return await Promise.race([uploadStringPromise, timeoutPromise]);
+    } catch (err) {
+      logAuthError("Storage upload via data_url (using data URL for persistent display)", err);
+      return uri;
+    }
+  }
+
+  // 2. Otherwise fetch blob and upload with uploadBytesResumable
+  try {
+    const response = await fetch(uri);
+    if (!response.ok) {
+      return uri;
+    }
+
+    const image = await response.blob();
+    const imageType = contentType || image.type || "image/jpeg";
+    if (!imageType.startsWith("image/")) {
+      throw new Error("The selected file is not a supported image.");
+    }
+    if (image.size >= 5 * 1024 * 1024) {
+      throw new Error("Profile photos must be smaller than 5 MB.");
+    }
+
+    const uploadPromise = new Promise<string>((resolve, reject) => {
+      const uploadTask = uploadBytesResumable(photoRef, image, { contentType: imageType });
+      uploadTask.on(
+        "state_changed",
+        null,
+        (error) => reject(error),
+        async () => {
+          try {
+            const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+            resolve(downloadUrl);
+          } catch (err) {
+            reject(err);
+          }
+        },
+      );
+    });
+
+    const timeoutPromise = new Promise<string>((_, reject) =>
+      setTimeout(() => reject(new Error("Storage upload timed out")), 8000),
+    );
+
+    return await Promise.race([uploadPromise, timeoutPromise]);
+  } catch (error) {
+    logAuthError("Uploading photo to Firebase Storage (falling back to data URL)", error);
+    return uri;
+  }
 }
 
 function friendlyProfileSaveError(error: unknown): string {
@@ -176,16 +228,36 @@ export default function App() {
   // Let users browse listings before choosing whether to sign in.
   const [tab, setTab] = useState<Tab>("Explore");
 
-  // Initialize user from existing Firebase auth or local stored session
-  const [user, setUser] = useState<AppUser | null>(() => {
-    if (auth?.currentUser) {
-      return toAppUser(auth.currentUser);
-    }
-    return loadStoredSession();
-  });
+  // Initialize user from stored session so refresh immediately displays the user and profile photo
+  const [user, setUser] = useState<AppUser | null>(() => loadStoredSession());
+
+  useEffect(() => {
+    let isMounted = true;
+    loadAsyncStoredSession().then((stored) => {
+      if (isMounted && stored) {
+        setUser((prev) => prev || stored);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
   const unreadMessageState = useUnreadMessageState(
     user?.uid && user.uid !== DEMO_USER.uid ? user.uid : null,
   );
+
+  const googleWebClientId =
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
+    "1011797266691-j2lf33q3fee2tu0u0jdctcr7esupesgg.apps.googleusercontent.com";
+
+  const [googleAuthRequest, googleAuthResponse, promptGoogleAuthAsync] =
+    Google.useIdTokenAuthRequest({
+      clientId: googleWebClientId,
+      scopes: ["profile", "email"],
+      extraParams: {
+        prompt: "select_account",
+      },
+    });
 
   const [authOpen, setAuthOpen] = useState(false);
   const [authInitialMode, setAuthInitialMode] = useState<"signIn" | "signUp">("signIn");
@@ -208,6 +280,7 @@ export default function App() {
   const [editingListing, setEditingListing] = useState<Listing | null>(null);
   const [deletingListing, setDeletingListing] = useState<Listing | null>(null);
   const [messageConversationId, setMessageConversationId] = useState<string | null>(null);
+  const [messagesResetKey, setMessagesResetKey] = useState(0);
   const pendingSavedIds = useRef(new Set<string>());
   const [meetup, setMeetup] = useState(
     user?.meetupPreference || user?.campus || "North Campus",
@@ -293,22 +366,24 @@ export default function App() {
   useEffect(() => {
     const firebaseAuth = auth;
     if (!firebaseAuth) {
-      // Local demo mode: restore session if stored
-      const stored = loadStoredSession();
-      if (stored) {
-        setUser(stored);
-        setMeetup(stored.meetupPreference || stored.campus || "North Campus");
-      }
       return;
     }
 
-    getRedirectResult(firebaseAuth).catch((error) => {
-      logAuthError("Google redirect sign-in", error);
-      const message = friendlyAuthError(error);
-      if (message) setAuthError(message);
-    });
+    if (Platform.OS === "web") {
+      setPersistence(firebaseAuth, browserSessionPersistence).catch((error) => {
+        logAuthError("Setting auth persistence", error);
+      });
 
-    return onAuthStateChanged(firebaseAuth, (nextUser) => {
+      if (typeof getRedirectResult === "function") {
+        getRedirectResult(firebaseAuth).catch((error) => {
+          logAuthError("Google redirect sign-in", error);
+          const message = friendlyAuthError(error);
+          if (message) setAuthError(message);
+        });
+      }
+    }
+
+    return onAuthStateChanged(firebaseAuth, async (nextUser) => {
       if (!nextUser) {
         setUser(null);
         setSavedState({ userId: null, ids: [] });
@@ -318,7 +393,75 @@ export default function App() {
         return;
       }
 
-      const next = toAppUser(nextUser);
+      // 1. Check if we already have saved session or Firestore photo for this user
+      const stored = (await loadAsyncStoredSession()) || loadStoredSession();
+      let photoURL =
+        stored && stored.uid === nextUser.uid && stored.photoURL
+          ? stored.photoURL
+          : nextUser.photoURL || null;
+
+      let displayName =
+        stored && stored.uid === nextUser.uid && stored.displayName
+          ? stored.displayName
+          : nextUser.displayName || null;
+
+      let phoneNumber =
+        stored && stored.uid === nextUser.uid && stored.phoneNumber
+          ? stored.phoneNumber
+          : nextUser.phoneNumber || null;
+
+      let meetupPreference =
+        stored && stored.uid === nextUser.uid && stored.meetupPreference
+          ? stored.meetupPreference
+          : undefined;
+
+      let customPhotoURL =
+        stored && stored.uid === nextUser.uid ? stored.customPhotoURL || null : null;
+      let googlePhotoURL =
+        stored && stored.uid === nextUser.uid ? stored.googlePhotoURL || null : null;
+
+      // Check Firestore doc directly to get manual photo if exists
+      if (db) {
+        try {
+          const userDocSnap = await getDoc(doc(db, "users", nextUser.uid));
+          if (userDocSnap.exists()) {
+            const data = userDocSnap.data();
+            if (typeof data.customPhotoURL === "string" || data.customPhotoURL === null) {
+              customPhotoURL = data.customPhotoURL;
+            }
+            if (typeof data.googlePhotoURL === "string") {
+              googlePhotoURL = data.googlePhotoURL;
+            }
+            if (typeof data.photoURL === "string" && data.photoURL) {
+              photoURL = data.photoURL;
+            } else if (data.photoURL === null) {
+              // If Firestore has null photoURL, fallback to Google account photo if signed in via Google
+              photoURL = nextUser.photoURL || null;
+            }
+            if (typeof data.displayName === "string" && data.displayName) {
+              displayName = data.displayName;
+            }
+            if (typeof data.phoneNumber === "string") {
+              phoneNumber = data.phoneNumber;
+            }
+            if (typeof data.meetupPreference === "string") {
+              meetupPreference = data.meetupPreference;
+            }
+          }
+        } catch (fetchErr) {
+          logAuthError("Fetching user doc on auth state change", fetchErr);
+        }
+      }
+
+      const next = toAppUser(nextUser, {
+        displayName,
+        photoURL,
+        customPhotoURL,
+        googlePhotoURL,
+        phoneNumber,
+        meetupPreference,
+      });
+
       setUser(next);
       setTab("Explore");
       saveStoredSession(next);
@@ -343,8 +486,66 @@ export default function App() {
     return onSnapshot(
       doc(db, "users", user.uid),
       (snapshot) => {
-        const saved = snapshot.data()?.meetupPreference;
-        if (typeof saved === "string") setMeetup(saved);
+        const data = snapshot.data();
+        if (!data) return;
+        const savedMeetup = data.meetupPreference;
+        if (typeof savedMeetup === "string") setMeetup(savedMeetup);
+
+        setUser((currentUser) => {
+          if (!currentUser || currentUser.uid !== user.uid) return currentUser;
+          const nextDisplayName =
+            typeof data.displayName === "string" && data.displayName
+              ? data.displayName
+              : currentUser.displayName;
+          const nextPhotoURL =
+            typeof data.photoURL === "string"
+              ? data.photoURL
+              : data.photoURL === null
+                ? null
+                : currentUser.photoURL;
+          const nextPhone =
+            typeof data.phoneNumber === "string"
+              ? data.phoneNumber
+              : currentUser.phoneNumber;
+          const nextMeetup =
+            typeof data.meetupPreference === "string"
+              ? data.meetupPreference
+              : currentUser.meetupPreference;
+
+          const nextCustomPhoto =
+            typeof data.customPhotoURL === "string"
+              ? data.customPhotoURL
+              : data.customPhotoURL === null
+                ? null
+                : currentUser.customPhotoURL;
+          const nextGooglePhoto =
+            typeof data.googlePhotoURL === "string"
+              ? data.googlePhotoURL
+              : currentUser.googlePhotoURL;
+
+          if (
+            currentUser.displayName === nextDisplayName &&
+            currentUser.photoURL === nextPhotoURL &&
+            currentUser.customPhotoURL === nextCustomPhoto &&
+            currentUser.googlePhotoURL === nextGooglePhoto &&
+            currentUser.phoneNumber === nextPhone &&
+            currentUser.meetupPreference === nextMeetup
+          ) {
+            return currentUser;
+          }
+
+          const updated: AppUser = {
+            ...currentUser,
+            displayName: nextDisplayName,
+            photoURL: nextPhotoURL,
+            customPhotoURL: nextCustomPhoto,
+            googlePhotoURL: nextGooglePhoto,
+            phoneNumber: nextPhone,
+            meetupPreference: nextMeetup,
+          };
+          saveStoredSession(updated);
+          return updated;
+        });
       },
       (error) => {
         logAuthError("Listening to signed-in user profile", error);
@@ -384,6 +585,44 @@ export default function App() {
     setAuthError("");
   };
 
+  // Handle mobile Google Sign In token response from expo-auth-session
+  useEffect(() => {
+    if (!auth || !googleAuthResponse) return;
+
+    if (googleAuthResponse.type === "success") {
+      const { id_token } = googleAuthResponse.params;
+      if (id_token) {
+        setAuthBusy(true);
+        const credential = GoogleAuthProvider.credential(id_token);
+        signInWithCredential(auth, credential)
+          .then((result) => {
+            const loggedIn = toAppUser(result.user);
+            setUser(loggedIn);
+            setTab("Explore");
+            saveStoredSession(loggedIn);
+            setAuthOpen(false);
+            setAuthError("");
+          })
+          .catch((err) => {
+            logAuthError("Signing in with Google credential", err);
+            setAuthError(friendlyAuthError(err));
+          })
+          .finally(() => {
+            setAuthBusy(false);
+          });
+      }
+    } else if (googleAuthResponse.type === "error") {
+      logAuthError("Google Auth Session", googleAuthResponse.error);
+      setAuthError(
+        googleAuthResponse.error?.message ||
+          "Google sign-in was not completed. Please try again.",
+      );
+      setAuthBusy(false);
+    } else if (googleAuthResponse.type === "dismiss" || googleAuthResponse.type === "cancel") {
+      setAuthBusy(false);
+    }
+  }, [googleAuthResponse]);
+
   const signInWithGoogle = async () => {
     if (!auth) {
       continueAsGuest();
@@ -394,20 +633,48 @@ export default function App() {
     setAuthBusy(true);
 
     try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
-      setAuthOpen(false);
+      const provider = new GoogleAuthProvider();
+      provider.addScope("profile");
+      provider.addScope("email");
+      provider.setCustomParameters({
+        prompt: "select_account",
+      });
+
+      if (Platform.OS === "web") {
+        await signInWithPopup(auth, provider);
+        setAuthOpen(false);
+      } else {
+        // Native mobile Expo Go flow
+        if (promptGoogleAuthAsync) {
+          const result = await promptGoogleAuthAsync();
+          if (result.type !== "success") {
+            setAuthBusy(false);
+          }
+        } else {
+          setAuthError("Google Sign-In is initializing. Please try again.");
+          setAuthBusy(false);
+        }
+      }
     } catch (error) {
       logAuthError("Google sign-in", error);
       const code = (error as { code?: string })?.code;
 
-      if (code === "auth/popup-blocked") {
-        await signInWithRedirect(auth, new GoogleAuthProvider());
+      if (code === "auth/popup-blocked" && Platform.OS === "web") {
+        const fallbackProvider = new GoogleAuthProvider();
+        fallbackProvider.addScope("profile");
+        fallbackProvider.addScope("email");
+        fallbackProvider.setCustomParameters({
+          prompt: "select_account",
+        });
+        await signInWithRedirect(auth, fallbackProvider);
         return;
       }
 
       setAuthError(friendlyAuthError(error));
     } finally {
-      setAuthBusy(false);
+      if (Platform.OS === "web") {
+        setAuthBusy(false);
+      }
     }
   };
 
@@ -417,7 +684,6 @@ export default function App() {
     password: string,
     name: string,
     phone?: string,
-    photo?: { uri: string; dataUrl?: string; contentType?: string | null },
   ) => {
     // Client-side input validation
     const validationError = validateAuthInput(mode, email, password, name);
@@ -439,25 +705,10 @@ export default function App() {
             password,
           );
 
-          let photoURL: string | null = null;
-          let photoUploadError: unknown;
-          if (photo) {
-            try {
-              photoURL = await uploadProfilePhoto(
-                credential.user.uid,
-                photo.uri,
-                photo.contentType,
-              );
-            } catch (error) {
-              logAuthError("Uploading profile photo", error);
-              photoUploadError = error;
-            }
-          }
-
           const created = toAppUser(credential.user, {
             displayName: name.trim(),
             phoneNumber: phone?.trim() || null,
-            photoURL,
+            photoURL: null,
           });
           setUser(created);
           setTab("Explore");
@@ -469,7 +720,6 @@ export default function App() {
             try {
               await updateProfile(credential.user, {
                 displayName: name.trim(),
-                photoURL,
               });
             } catch (error) {
               logAuthError("Updating new account profile", error);
@@ -486,11 +736,9 @@ export default function App() {
             setProfileReady(false);
           }
 
-          const signupNotice = photoUploadError
-            ? "Your account was created, but the profile photo could not be uploaded. Check that Firebase Storage is enabled and storage.rules are deployed."
-            : profileError
-              ? friendlyProfileSaveError(profileError)
-              : "";
+          const signupNotice = profileError
+            ? friendlyProfileSaveError(profileError)
+            : "";
           setAuthError(signupNotice);
           setAuthOpen(Boolean(signupNotice));
         } else {
@@ -525,7 +773,7 @@ export default function App() {
             email: email.trim(),
             displayName: name.trim(),
             phoneNumber: phone?.trim() || null,
-            photoURL: photo?.dataUrl || photo?.uri || null,
+            photoURL: null,
             campus: "North Campus",
             meetupPreference: "Student Center",
             createdAt: new Date().toLocaleDateString("en-US", {
@@ -645,6 +893,120 @@ export default function App() {
     if (idx !== -1) {
       demoAccounts[idx].user = updatedUser;
       saveDemoAccounts(demoAccounts);
+    }
+  };
+
+  const handleUpdateProfilePhoto = async (
+    uri: string,
+    contentType?: string | null,
+  ) => {
+    if (!user) throw new Error("Please sign in first.");
+
+    // 1. Optimistic update: instantly display the selected photo to eliminate waiting
+    const previousPhotoURL = user.photoURL;
+    const optimisticUser: AppUser = {
+      ...user,
+      photoURL: uri,
+      customPhotoURL: uri,
+    };
+    setUser(optimisticUser);
+    saveStoredSession(optimisticUser);
+
+    try {
+      let finalPhotoURL = uri;
+
+      if (auth?.currentUser && user.uid !== DEMO_USER.uid) {
+        finalPhotoURL = await uploadProfilePhoto(user.uid, uri, contentType);
+        if (db) {
+          await setDoc(
+            doc(db, "users", user.uid),
+            {
+              photoURL: finalPhotoURL,
+              customPhotoURL: finalPhotoURL,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true },
+          );
+        }
+        try {
+          await updateProfile(auth.currentUser, { photoURL: finalPhotoURL });
+        } catch (updateError) {
+          logAuthError("Updating auth user photo", updateError);
+        }
+      }
+
+      const syncedUser: AppUser = {
+        ...user,
+        photoURL: finalPhotoURL,
+        customPhotoURL: finalPhotoURL,
+      };
+      setUser(syncedUser);
+      saveStoredSession(syncedUser);
+
+      const demoAccounts = getDemoAccounts();
+      const idx = demoAccounts.findIndex((acc) => acc.user.uid === user.uid);
+      if (idx !== -1) {
+        demoAccounts[idx].user = syncedUser;
+        saveDemoAccounts(demoAccounts);
+      }
+    } catch (error) {
+      // Revert if upload failed
+      setUser((curr) => (curr ? { ...curr, photoURL: previousPhotoURL } : null));
+      throw error;
+    }
+  };
+
+  const handleRemoveProfilePhoto = async () => {
+    if (!user) throw new Error("Please sign in first.");
+
+    const previousUser = { ...user };
+    const googlePhoto =
+      user.googlePhotoURL ||
+      auth?.currentUser?.providerData?.find((p) => p.providerId === "google.com")?.photoURL ||
+      null;
+
+    const fallbackPhoto = googlePhoto || null;
+
+    const updatedUser: AppUser = {
+      ...user,
+      photoURL: fallbackPhoto,
+      customPhotoURL: null,
+      googlePhotoURL: googlePhoto,
+    };
+
+    setUser(updatedUser);
+    saveStoredSession(updatedUser);
+
+    try {
+      if (auth?.currentUser && user.uid !== DEMO_USER.uid) {
+        if (db) {
+          await setDoc(
+            doc(db, "users", user.uid),
+            {
+              photoURL: fallbackPhoto,
+              customPhotoURL: null,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true },
+          );
+        }
+        try {
+          await updateProfile(auth.currentUser, { photoURL: fallbackPhoto || "" });
+        } catch (updateError) {
+          logAuthError("Updating auth photo to fallback", updateError);
+        }
+      }
+
+      const demoAccounts = getDemoAccounts();
+      const idx = demoAccounts.findIndex((acc) => acc.user.uid === user.uid);
+      if (idx !== -1) {
+        demoAccounts[idx].user = updatedUser;
+        saveDemoAccounts(demoAccounts);
+      }
+    } catch (error) {
+      setUser(previousUser);
+      saveStoredSession(previousUser);
+      throw error;
     }
   };
 
@@ -787,25 +1149,25 @@ export default function App() {
     const newImageUrl = input.imageUri || editingListing.image;
     if (input.imageUri) validateProductImageDataUrl(input.imageUri);
     await runTransaction(firestore, async (transaction) => {
-        const listingRef = doc(firestore, "listings", editingListing.id);
-        const snapshot = await transaction.get(listingRef);
-        if (!snapshot.exists() || snapshot.data().sellerId !== firebaseUser.uid) {
-          throw new Error("You do not own this listing.");
-        }
-        const quantity = input.quantity;
-        transaction.update(listingRef, {
-          title: input.title,
-          price: input.price,
-          category: input.category,
-          condition: input.condition,
-          campus: input.campus,
-          description: input.description,
-          quantity,
-          status: quantity > 0 ? "available" : "sold",
-          image: newImageUrl,
-          updatedAt: serverTimestamp(),
-        });
+      const listingRef = doc(firestore, "listings", editingListing.id);
+      const snapshot = await transaction.get(listingRef);
+      if (!snapshot.exists() || snapshot.data().sellerId !== firebaseUser.uid) {
+        throw new Error("You do not own this listing.");
+      }
+      const quantity = input.quantity;
+      transaction.update(listingRef, {
+        title: input.title,
+        price: input.price,
+        category: input.category,
+        condition: input.condition,
+        campus: input.campus,
+        description: input.description,
+        quantity,
+        status: quantity > 0 ? "available" : "sold",
+        image: newImageUrl,
+        updatedAt: serverTimestamp(),
       });
+    });
     setEditingListing(null);
   };
 
@@ -903,6 +1265,8 @@ export default function App() {
           onSignUp={() => openAuth("signUp")}
           onSignOut={handleSignOut}
           onUpdateProfile={handleUpdateProfile}
+          onUpdatePhoto={handleUpdateProfilePhoto}
+          onRemovePhoto={handleRemoveProfilePhoto}
           onResetPassword={resetPassword}
           onOpenMyListings={() => setTab("MyListings")}
         />
@@ -939,6 +1303,7 @@ export default function App() {
 
       {tab === "Messages" && (
         <MessagesPage
+          key={`messages-${messagesResetKey}`}
           userId={user?.uid && user.uid !== DEMO_USER.uid ? user.uid : null}
           initialConversationId={messageConversationId}
           unreadByConversation={unreadMessageState.byConversation}
@@ -969,10 +1334,16 @@ export default function App() {
 
       <BottomNav
         tab={tab}
-        onChange={setTab}
+        onChange={(nextTab) => {
+          if (nextTab === "Messages") {
+            setMessageConversationId(null);
+            setMessagesResetKey((prev) => prev + 1);
+          }
+          setTab(nextTab);
+        }}
         onAdd={() => setSellOpen(true)}
         unreadMessageCount={unreadMessageState.total}
-        savedCount={savedIds.length}
+        savedCount={savedItems.length}
       />
 
       <ListingDetailsModal
@@ -985,9 +1356,9 @@ export default function App() {
         showSave={!user || !selectedListing?.sellerId || selectedListing.sellerId !== user.uid}
         onMessageSeller={
           selectedListing &&
-          user &&
-          selectedListing.sellerId &&
-          selectedListing.sellerId !== user.uid
+            user &&
+            selectedListing.sellerId &&
+            selectedListing.sellerId !== user.uid
             ? () => void messageSeller(selectedListing)
             : undefined
         }
@@ -1165,9 +1536,9 @@ function NavItem({
       onHoverOut={() => setIsHovered(false)}
       {...(Platform.OS === "web"
         ? {
-            onMouseEnter: () => setIsHovered(true),
-            onMouseLeave: () => setIsHovered(false),
-          }
+          onMouseEnter: () => setIsHovered(true),
+          onMouseLeave: () => setIsHovered(false),
+        }
         : {})}
     >
       <View style={styles.navIconWrap}>
@@ -1238,7 +1609,6 @@ function AuthModal({
     password: string,
     name: string,
     phone?: string,
-    photo?: { uri: string; dataUrl?: string; contentType?: string | null },
   ) => Promise<void>;
   onReset: (email: string) => Promise<boolean>;
   onGuest: () => void;
@@ -1252,22 +1622,25 @@ function AuthModal({
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [notice, setNotice] = useState("");
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const [photoDataUrl, setPhotoDataUrl] = useState<string | undefined>();
-  const [photoContentType, setPhotoContentType] = useState<string | null>();
-  const [photoError, setPhotoError] = useState("");
+  const [localError, setLocalError] = useState("");
 
   useEffect(() => {
     if (visible) {
       setMode(initialMode);
+      setShowPassword(false);
+      setShowConfirmPassword(false);
+      setLocalError("");
     } else {
       setPassword("");
+      setConfirmPassword("");
+      setShowPassword(false);
+      setShowConfirmPassword(false);
       setNotice("");
-      setPhotoError("");
-      setPhotoUri(null);
-      setPhotoDataUrl(undefined);
-      setPhotoContentType(null);
+      setLocalError("");
     }
   }, [visible, initialMode]);
 
@@ -1275,49 +1648,8 @@ function AuthModal({
 
   const handleModeSwitch = (targetMode: "signIn" | "signUp") => {
     setNotice("");
-    setPhotoError("");
-    if (targetMode === "signIn") {
-      setPhotoUri(null);
-      setPhotoDataUrl(undefined);
-      setPhotoContentType(null);
-    }
+    setLocalError("");
     setMode(targetMode);
-  };
-
-  const handleChoosePhoto = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.7,
-        base64: true,
-      });
-
-      if (!result.canceled) {
-        const asset = result.assets[0];
-        if (asset.fileSize && asset.fileSize >= 5 * 1024 * 1024) {
-          setPhotoError("Profile photos must be smaller than 5 MB.");
-          return;
-        }
-
-        setPhotoUri(asset.uri);
-        setPhotoContentType(asset.mimeType || null);
-        setPhotoDataUrl(
-          asset.base64
-            ? `data:${asset.mimeType || "image/jpeg"};base64,${asset.base64}`
-            : undefined,
-        );
-        setNotice("");
-        setPhotoError("");
-      }
-    } catch (error) {
-      setPhotoError(
-        error instanceof Error
-          ? `Unable to select a profile photo: ${error.message}`
-          : "Unable to select a profile photo. Please try again.",
-      );
-    }
   };
 
   const handleFillDemo = () => {
@@ -1326,8 +1658,33 @@ function AuthModal({
     if (isSignUp) {
       setName("Jordan Smith");
       setPhone("(555) 234-5678");
+      setConfirmPassword("campus123");
     }
+    setLocalError("");
     setNotice("Filled demo credentials (student@campus.edu / campus123)");
+  };
+
+  const handleSubmit = () => {
+    setLocalError("");
+    if (isSignUp) {
+      if (!password) {
+        setLocalError("Please enter your password.");
+        return;
+      }
+      if (password.length < 6) {
+        setLocalError("Password must be at least 6 characters.");
+        return;
+      }
+      if (!confirmPassword) {
+        setLocalError("Please confirm your password.");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setLocalError("Passwords do not match. Please re-enter.");
+        return;
+      }
+    }
+    onEmail(mode, email, password, name, phone);
   };
 
   return (
@@ -1385,17 +1742,10 @@ function AuthModal({
             </Text>
 
             {/* Validation & Auth Error Box */}
-            {error ? (
+            {localError || error ? (
               <View style={styles.authErrorContainer}>
                 <Text style={styles.authErrorIcon}>⚠️</Text>
-                <Text style={styles.authErrorText}>{error}</Text>
-              </View>
-            ) : null}
-
-            {photoError ? (
-              <View style={styles.authErrorContainer}>
-                <Text style={styles.authErrorIcon}>⚠️</Text>
-                <Text style={styles.authErrorText}>{photoError}</Text>
+                <Text style={styles.authErrorText}>{localError || error}</Text>
               </View>
             ) : null}
 
@@ -1416,32 +1766,6 @@ function AuthModal({
                   autoCapitalize="words"
                   style={styles.field}
                 />
-
-                <Text style={styles.label}>Profile Photo (Optional)</Text>
-                <Pressable
-                  style={styles.photoPicker}
-                  onPress={handleChoosePhoto}
-                  disabled={busy}
-                >
-                  {photoUri ? (
-                    <Image
-                      source={{ uri: photoUri }}
-                      style={styles.photoPreview}
-                    />
-                  ) : (
-                    <View style={styles.photoPlaceholder}>
-                      <Text style={styles.photoPlaceholderText}>+</Text>
-                    </View>
-                  )}
-                  <View style={styles.photoPickerText}>
-                    <Text style={styles.photoPickerTitle}>
-                      {photoUri ? "Change profile photo" : "Choose profile photo"}
-                    </Text>
-                    <Text style={styles.photoPickerHint}>
-                      Optional · image must be under 5 MB
-                    </Text>
-                  </View>
-                </Pressable>
 
                 <Text style={styles.label}>Phone Number (Optional)</Text>
                 <TextInput
@@ -1467,28 +1791,69 @@ function AuthModal({
               style={styles.field}
             />
 
-            <Text style={styles.label}>
-              {isSignUp ? "Password (min 6 characters)" : "Password"}
-            </Text>
-            <TextInput
-              value={password}
-              onChangeText={setPassword}
-              placeholder={isSignUp ? "At least 6 characters" : "Your password"}
-              placeholderTextColor="#9BA59F"
-              secureTextEntry
-              autoCapitalize="none"
-              style={styles.field}
-              onSubmitEditing={() =>
-                !busy &&
-                onEmail(mode, email, password, name, phone, photoUri
-                  ? {
-                      uri: photoUri,
-                      dataUrl: photoDataUrl,
-                      contentType: photoContentType,
+            <Text style={styles.label}>Password</Text>
+            <View style={styles.passwordContainer}>
+              <TextInput
+                value={password}
+                onChangeText={(text) => {
+                  setPassword(text);
+                  if (localError) setLocalError("");
+                }}
+                placeholder="Enter password"
+                placeholderTextColor="#9BA59F"
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                style={styles.passwordField}
+                onSubmitEditing={() =>
+                  !busy && (isSignUp ? null : handleSubmit())
+                }
+              />
+              <Pressable
+                style={styles.eyeButton}
+                onPress={() => setShowPassword((prev) => !prev)}
+                accessibilityLabel={showPassword ? "Hide password" : "Show password"}
+                hitSlop={8}
+              >
+                <Text style={styles.eyeIcon}>{showPassword ? "👁️" : "👁"}</Text>
+              </Pressable>
+            </View>
+
+            {isSignUp ? (
+              <>
+                <Text style={styles.label}>
+                  Confirm Password
+                </Text>
+                <View style={styles.passwordContainer}>
+                  <TextInput
+                    value={confirmPassword}
+                    onChangeText={(text) => {
+                      setConfirmPassword(text);
+                      if (localError) setLocalError("");
+                    }}
+                    placeholder="Re-enter password"
+                    placeholderTextColor="#9BA59F"
+                    secureTextEntry={!showConfirmPassword}
+                    autoCapitalize="none"
+                    style={styles.passwordField}
+                    onSubmitEditing={() => !busy && handleSubmit()}
+                  />
+                  <Pressable
+                    style={styles.eyeButton}
+                    onPress={() => setShowConfirmPassword((prev) => !prev)}
+                    accessibilityLabel={
+                      showConfirmPassword
+                        ? "Hide confirm password"
+                        : "Show confirm password"
                     }
-                  : undefined)
-              }
-            />
+                    hitSlop={8}
+                  >
+                    <Text style={styles.eyeIcon}>
+                      {showConfirmPassword ? "👁️" : "👁"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : null}
 
             {!isSignUp ? (
               <Pressable
@@ -1508,22 +1873,7 @@ function AuthModal({
             <Pressable
               disabled={busy}
               style={[styles.primary, busy && styles.disabled]}
-              onPress={() =>
-                onEmail(
-                  mode,
-                  email,
-                  password,
-                  name,
-                  phone,
-                  photoUri
-                    ? {
-                        uri: photoUri,
-                        dataUrl: photoDataUrl,
-                        contentType: photoContentType,
-                      }
-                    : undefined,
-                )
-              }
+              onPress={handleSubmit}
             >
               {busy ? (
                 <View style={styles.loadingRow}>
@@ -1551,7 +1901,7 @@ function AuthModal({
               <Text style={styles.guestButtonText}>Continue as guest</Text>
             </Pressable>
 
-            {Platform.OS === "web" && !demoMode ? (
+            {!demoMode ? (
               <Pressable
                 disabled={busy}
                 style={[styles.googleButton, busy && styles.disabled]}
@@ -1637,8 +1987,8 @@ const styles = StyleSheet.create({
     minWidth: 54,
     ...(Platform.OS === "web"
       ? ({
-          cursor: "pointer",
-        } as any)
+        cursor: "pointer",
+      } as any)
       : {}),
   },
   navIconWrap: { position: "relative" },
@@ -1996,6 +2346,32 @@ const styles = StyleSheet.create({
     color: "#173C34",
     backgroundColor: "#FAFBF9",
     fontSize: 14,
+  },
+  passwordContainer: {
+    height: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#CFDCD3",
+    borderRadius: 10,
+    backgroundColor: "#FAFBF9",
+  },
+  passwordField: {
+    flex: 1,
+    height: "100%",
+    paddingHorizontal: 14,
+    color: "#173C34",
+    fontSize: 14,
+  },
+  eyeButton: {
+    paddingHorizontal: 12,
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  eyeIcon: {
+    fontSize: 18,
+    opacity: 0.85,
   },
 
   disabled: {
