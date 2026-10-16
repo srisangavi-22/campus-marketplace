@@ -10,13 +10,13 @@ Campus Marketplace provides a focused place for students to buy and sell items w
 
 ## Group members
 
-|Registration No | Group Member Name |
+| Registration No | Group Member Name |
 | --- | --- |
-| 2023CSC041 | Manivannan Nirmalan |
-| 2023CSC055 | Pathmaraj Gowsihan |
-| 2023CSC066 | Sriranganathan Sangavi |
-| 2023CSC083 | Manoharan Aboorva |
-| 2023CSC089 | Saththiyesvaran Kethursan |
+| 2023/CSC/041 | Manivannan Nirmalan |
+| 2023/CSC/055 | Pathmaraj Gowsihan |
+| 2023/CSC/066 | Sriranganathan Sangavi |
+| 2023/CSC/083 | Manoharan Aboorva |
+| 2023/CSC/089 | Saththiyesvaran Kethursan |
 
 ## Features implemented
 
@@ -109,8 +109,8 @@ Android requires Android Studio and a configured Android SDK. The iOS command re
 
 | Group Member | Contribution |
 | --- | --- |
-| **Manivannan Nirmalan (2023CSC041)** | Implemented listing creation and management, seller messaging, inventory updates, and sold-out status. Also improved sold-item status and messaging behavior. |
-| **Pathmaraj Gowsihan (2023CSC055)** | Improved the UI/UX, layout, listing-card presentation, and mobile/web usability, including saved-listing interaction improvements. |
-| **Sriranganathan Sangavi (2023CSC066)** | Implemented saved/favorite listings and Firestore persistence; coordinated pull-request reviews, conflict resolution, and integration into `main`. |
-| **Manoharan Aboorva (2023CSC083)** | Improved authentication and profile management, including sign-in validation. |
-| **Saththiyesvaran Kethursan (2023CSC089)** | Contributed price-range filtering, search, category filtering, and custom price validation improvements. |
+| **Manivannan Nirmalan (2023/CSC/041)** | Implemented listing creation and management, seller messaging, inventory updates, and sold-out status. Also improved sold-item status and messaging behavior. |
+| **Pathmaraj Gowsihan (2023/CSC/055)** | Improved the UI/UX, layout, listing-card presentation, and mobile/web usability, including saved-listing interaction improvements. |
+| **Sriranganathan Sangavi (2023/CSC/066)** | Implemented saved/favorite listings and Firestore persistence; coordinated pull-request reviews, conflict resolution, and integration into `main`. |
+| **Manoharan Aboorva (2023/CSC/083)** | Improved authentication and profile management, including sign-in validation. |
+| **Saththiyesvaran Kethursan (2023/CSC/089)** | Contributed price-range filtering, search, category filtering, and custom price validation improvements. |
