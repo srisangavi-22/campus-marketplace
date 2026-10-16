@@ -2,8 +2,6 @@
 
 A cross-platform campus marketplace built with React Native and Expo. Students can discover items, publish and manage listings, save favorites, and contact sellers.
 
-**Repository:** [srisangavi-22/campus-marketplace](https://github.com/srisangavi-22/campus-marketplace)
-
 ## Project description
 
 Campus Marketplace provides a focused place for students to buy and sell items within their campus community. The project was extended from an existing application as a group assignment; it is not a production service.
