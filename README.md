@@ -107,7 +107,7 @@ Android requires Android Studio and a configured Android SDK. The iOS command re
 
 ## Brief description of each member's contribution
 
-| Group member | Contribution |
+| Group Member | Contribution |
 | --- | --- |
 | **Manivannan Nirmalan (2023CSC041)** | Implemented listing creation and management, seller messaging, inventory updates, and sold-out status. Also improved sold-item status and messaging behavior. |
 | **Pathmaraj Gowsihan (2023CSC055)** | Improved the UI/UX, layout, listing-card presentation, and mobile/web usability, including saved-listing interaction improvements. |
