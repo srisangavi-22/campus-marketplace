@@ -10,7 +10,7 @@ Campus Marketplace provides a focused place for students to buy and sell items w
 
 ## Group members
 
-|Registration No | Group member Name |
+|Registration No | Group Member Name |
 | --- | --- |
 | 2023CSC041 | Manivannan Nirmalan |
 | 2023CSC055 | Pathmaraj Gowsihan |
