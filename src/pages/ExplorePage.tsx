@@ -255,34 +255,36 @@ export function ExplorePage({
         </Text>
       </View>
 
-      <View style={styles.filterRow}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.categoryScroller}
-          contentContainerStyle={styles.categories}
-        >
-          {categories.map((value) => (
-            <Pressable
-              key={value}
-              onPress={() => onCategoryChange(value)}
+      {/* Categories Horizontal Scroll - Full Width */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.categoryScroller}
+        contentContainerStyle={styles.categories}
+      >
+        {categories.map((value) => (
+          <Pressable
+            key={value}
+            onPress={() => onCategoryChange(value)}
+            style={[
+              styles.category,
+              category === value && styles.activeCategory,
+            ]}
+          >
+            <Text
               style={[
-                styles.category,
-                category === value && styles.activeCategory,
+                styles.categoryText,
+                category === value && styles.activeText,
               ]}
             >
-              <Text
-                style={[
-                  styles.categoryText,
-                  category === value && styles.activeText,
-                ]}
-              >
-                {value}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+              {value}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
 
+      {/* Price Range Filter Row - Below Categories */}
+      <View style={styles.secondaryFilterRow}>
         <View
           ref={priceFilterButton}
           collapsable={false}
@@ -305,9 +307,9 @@ export function ExplorePage({
                 styles.priceFilterButtonText,
                 (appliedFromPrice || appliedToPrice) &&
                   styles.activePriceFilterButtonText,
-            ]}
-          >
-            {selectedPriceLabel ? `Price ${selectedPriceLabel}` : "Price Range"}
+              ]}
+            >
+              {selectedPriceLabel ? `Price ${selectedPriceLabel}` : "Price Range"}
             </Text>
 
             <Text style={styles.priceChevron}>
@@ -315,6 +317,12 @@ export function ExplorePage({
             </Text>
           </Pressable>
         </View>
+
+        {(appliedFromPrice || appliedToPrice) ? (
+          <Pressable onPress={clearPriceFilter} style={styles.resetPriceChip}>
+            <Text style={styles.resetPriceText}>✕ Reset Price</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <Modal
@@ -576,13 +584,13 @@ const styles = StyleSheet.create({
   },
 
   categoryScroller: {
-    flex: 1,
-    minWidth: 0,
+    width: "100%",
+    marginBottom: 10,
   },
 
   categories: {
     gap: 8,
-    paddingBottom: 22,
+    paddingRight: 16,
   },
 
   category: {
@@ -607,8 +615,15 @@ const styles = StyleSheet.create({
     color: "#FFF",
   },
 
+  secondaryFilterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 16,
+  },
+
   priceFilterButtonWrapper: {
-    paddingBottom: 22,
+    alignSelf: "flex-start",
   },
 
   priceFilterButton: {
@@ -626,6 +641,20 @@ const styles = StyleSheet.create({
   activePriceFilterButton: {
     backgroundColor: "#EEF5F0",
     borderColor: "#B8D0C2",
+  },
+
+  resetPriceChip: {
+    height: 36,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    backgroundColor: "#FDEDEE",
+  },
+
+  resetPriceText: {
+    color: "#B3434B",
+    fontSize: 12,
+    fontWeight: "700",
   },
 
   priceFilterButtonText: {

@@ -7,6 +7,7 @@ export const categories = [
   "Tech",
   "Electronics",
   "Fashion",
+  "Others",
 ];
 
 export const seedListings: Listing[] = [
