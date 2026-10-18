@@ -42,7 +42,12 @@ yarn-error.*
 /android
 
 # Demo voiceover scripts & generated assets (local presentation only)
-VOICE_OVER_SCRIPT*.md
-*Voiceover_Script*.pdf
+VOICE_OVER_SCRIPT*
+*Voiceover_Script*
+*.docx
+~$*
 *.pdf
+VOICE_OVER_SCRIPT_COMPLETE.html
 build_pdf.py
+build_docx.py
+generate_pdf.js
