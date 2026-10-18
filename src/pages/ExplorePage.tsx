@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -33,6 +34,7 @@ export function ExplorePage({
   savedIds,
   userPhotoURL,
   userDisplayName,
+  scrollToTopTrigger,
   onQueryChange,
   onCategoryChange,
   onSave,
@@ -45,6 +47,7 @@ export function ExplorePage({
   savedIds: string[];
   userPhotoURL?: string | null;
   userDisplayName?: string | null;
+  scrollToTopTrigger?: number;
   onQueryChange: (value: string) => void;
   onCategoryChange: (value: string) => void;
   onSave: (id: string) => void;
@@ -68,7 +71,25 @@ export function ExplorePage({
   const userInitials = getUserInitials(userDisplayName);
 
   const priceFilterButton = useRef<View>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
   const window = useWindowDimensions();
+
+  useEffect(() => {
+    if (!scrollToTopTrigger) return;
+    if (scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({ y: 0, animated: true });
+      if (Platform.OS === "web") {
+        const node = (scrollViewRef.current as any)?.getScrollableNode?.() || (scrollViewRef.current as any);
+        if (node && typeof node.scrollTo === "function") {
+          node.scrollTo({ top: 0, behavior: "smooth" });
+        }
+        const browserWindow = typeof globalThis !== "undefined" ? (globalThis as any).window : undefined;
+        if (browserWindow && typeof browserWindow.scrollTo === "function") {
+          browserWindow.scrollTo({ top: 0, behavior: "smooth" });
+        }
+      }
+    }
+  }, [scrollToTopTrigger]);
 
   const pricePanelWidth = Math.min(
     360,
@@ -202,7 +223,7 @@ export function ExplorePage({
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.content}>
+    <ScrollView ref={scrollViewRef} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <View>
           <Text style={styles.eyebrow}>CAMPUS MARKETPLACE</Text>

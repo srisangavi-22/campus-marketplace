@@ -105,12 +105,28 @@ export function ListingCard({
           accessibilityLabel={saved ? "Remove saved item" : "Save item"}
           accessibilityState={{ selected: saved }}
           style={styles.save}
+          hitSlop={8}
           onPress={handleSave}
           onHoverIn={() => setIsHovered(true)}
           onHoverOut={() => setIsHovered(false)}
         >
-          <Animated.View style={{ transform: [{ scale: heartScale }] }}>
-            <Text style={[styles.heart, saved && styles.red]}>
+          <Animated.View
+            style={[
+              styles.heartWrap,
+              {
+                transform: [
+                  { scale: heartScale },
+                  { scaleX: 1.15 },
+                ],
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.heart,
+                saved ? styles.red : styles.inactiveHeart,
+              ]}
+            >
               {saved ? "\u2665" : "\u2661"}
             </Text>
           </Animated.View>
@@ -155,15 +171,28 @@ const styles = StyleSheet.create({
     elevation: 2,
     top: 10,
     right: 10,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: "rgba(255,255,255,.92)",
     justifyContent: "center",
     alignItems: "center",
   },
-  heart: { color: "#365B4C", fontSize: 21 },
-  red: { color: "#C3535B" },
+  heartWrap: {
+    width: 26,
+    height: 26,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  heart: {
+    color: "#365B4C",
+    fontSize: 20,
+    lineHeight: Platform.OS === "android" ? 22 : 20,
+    textAlign: "center",
+    includeFontPadding: false,
+  },
+  inactiveHeart: { color: "#365B4C" },
+  red: { color: "#E11D48" },
   body: { padding: 12 },
   row: { flexDirection: "row", justifyContent: "space-between", gap: 5 },
   title: {
