@@ -29,6 +29,7 @@ import { EmptyState } from "../components/EmptyState";
 import { getEffectiveStatus } from "../listingHelpers";
 import { db } from "../firebase";
 import { ChatMessage, Conversation, ProductContextMessage, ReplySnapshot } from "../types";
+import { getUserInitials } from "../authHelpers";
 
 function timestampMillis(value: unknown): number {
   if (value && typeof value === "object" && "toMillis" in value) {
@@ -462,6 +463,10 @@ function ChatView({
     }
   };
 
+  const [photoError, setPhotoError] = useState(false);
+
+  const initials = useMemo(() => getUserInitials(otherName), [otherName]);
+
   return (
     <View style={styles.chatContainer}>
       <View style={styles.chatHeader}>
@@ -469,12 +474,16 @@ function ChatView({
           <Text style={styles.back}>‹</Text>
         </Pressable>
         <View style={styles.headerUserSection}>
-          {otherPhoto ? (
-            <Image source={{ uri: otherPhoto }} style={styles.headerAvatar} />
+          {otherPhoto && !photoError ? (
+            <Image
+              source={{ uri: otherPhoto }}
+              style={styles.headerAvatar}
+              onError={() => setPhotoError(true)}
+            />
           ) : (
             <View style={styles.headerAvatarFallback}>
               <Text style={styles.headerAvatarFallbackText}>
-                {otherName.slice(0, 1).toUpperCase()}
+                {initials}
               </Text>
             </View>
           )}
