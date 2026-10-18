@@ -5,6 +5,7 @@ export type Listing = {
   category: string;
   seller: string;
   sellerId?: string;
+  sellerPhoto?: string | null;
   campus: string;
   condition: string;
   image: string;

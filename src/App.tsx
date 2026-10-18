@@ -305,6 +305,7 @@ export default function App() {
             category: typeof data.category === "string" ? data.category : "",
             seller: typeof data.seller === "string" ? data.seller : "Campus seller",
             sellerId: typeof data.sellerId === "string" ? data.sellerId : undefined,
+            sellerPhoto: typeof data.sellerPhoto === "string" ? data.sellerPhoto : null,
             campus: typeof data.campus === "string" ? data.campus : "",
             condition: typeof data.condition === "string" ? data.condition : "",
             image: typeof data.image === "string" ? data.image : "",
@@ -1089,13 +1090,10 @@ export default function App() {
             [firebaseUser.uid]: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Campus student",
             [listing.sellerId]: listing.seller || "Campus student",
           },
-          ...(firebaseUser.photoURL
-            ? {
-                memberPhotos: {
-                  [firebaseUser.uid]: firebaseUser.photoURL,
-                },
-              }
-            : {}),
+          memberPhotos: {
+            ...(user?.photoURL || firebaseUser.photoURL ? { [firebaseUser.uid]: (user?.photoURL || firebaseUser.photoURL)! } : {}),
+            ...(listing.sellerPhoto ? { [listing.sellerId]: listing.sellerPhoto } : {}),
+          },
           updatedAt: serverTimestamp(),
         },
         { merge: true },
@@ -1140,6 +1138,7 @@ export default function App() {
       image: imageUri,
       sellerId: firebaseUser.uid,
       seller: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Campus seller",
+      sellerPhoto: user?.photoURL || firebaseUser.photoURL || null,
       createdAt: serverTimestamp(),
     });
   };
@@ -1729,18 +1728,6 @@ function AuthModal({
     setMode(targetMode);
   };
 
-  const handleFillDemo = () => {
-    setEmail("student@campus.edu");
-    setPassword("campus123");
-    if (isSignUp) {
-      setName("Jordan Smith");
-      setPhone("(555) 234-5678");
-      setConfirmPassword("campus123");
-    }
-    setLocalError("");
-    setNotice("Filled demo credentials (student@campus.edu / campus123)");
-  };
-
   const handleSubmit = () => {
     setLocalError("");
     if (isSignUp) {
@@ -1966,12 +1953,7 @@ function AuthModal({
               )}
             </Pressable>
 
-            {/* Quick Demo Helper Button */}
-            <Pressable style={styles.demoFillButton} onPress={handleFillDemo}>
-              <Text style={styles.demoFillText}>
-                ⚡ Fill demo student credentials
-              </Text>
-            </Pressable>
+
 
             {/* Alternative Auth / Guest Option */}
             <Pressable style={styles.guestButton} onPress={onGuest}>
