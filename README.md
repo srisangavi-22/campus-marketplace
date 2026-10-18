@@ -130,3 +130,7 @@ Android requires Android Studio and a configured Android SDK. The iOS command re
 | **Sriranganathan Sangavi (2023/CSC/066)** | Implemented saved/favorite listings and Firestore persistence, profile photo upload, automatic initials-based avatars, and consistent navigation bar profile icon styling, coordinated pull-request reviews, conflict resolution, and integration into `main`. |
 | **Manoharan Aboorva (2023/CSC/083)** | Improved authentication and profile management, including sign-in validation. |
 | **Saththiyesvaran Kethursan (2023/CSC/089)** | Contributed price-range filtering, search, category filtering, and custom price validation improvements. |
+
+## Collaborative Integration and Final Improvements
+
+After completing their individual contributions, all team members collaborated to review, refine, and integrate the implemented features. Through group discussions and hands-on collaboration using a shared computer, the team identified issues, made necessary improvements, and ensured consistency across the application.
