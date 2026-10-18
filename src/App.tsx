@@ -1089,6 +1089,13 @@ export default function App() {
             [firebaseUser.uid]: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Campus student",
             [listing.sellerId]: listing.seller || "Campus student",
           },
+          ...(firebaseUser.photoURL
+            ? {
+                memberPhotos: {
+                  [firebaseUser.uid]: firebaseUser.photoURL,
+                },
+              }
+            : {}),
           updatedAt: serverTimestamp(),
         },
         { merge: true },

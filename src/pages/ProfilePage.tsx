@@ -225,7 +225,7 @@ export function ProfilePage({
             </View>
           ) : user ? (
             <View style={styles.avatarBadge}>
-              <Text style={styles.avatarBadgeIcon}>📷</Text>
+              <Text style={styles.avatarBadgeIcon}>✎</Text>
             </View>
           ) : null}
         </Pressable>
@@ -269,10 +269,10 @@ export function ProfilePage({
         ) : null}
       </View>
 
-      {/* Account & Authentication Information Section */}
+      {/* Campus & Account Details Section */}
       {user ? (
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionHeaderTitle}>ACCOUNT & AUTHENTICATION</Text>
+          <Text style={styles.sectionHeaderTitle}>CAMPUS & ACCOUNT DETAILS</Text>
 
           <View style={styles.infoRow}>
             <Text style={styles.infoKey}>Student Status</Text>
@@ -280,25 +280,6 @@ export function ProfilePage({
               <View style={styles.statusDot} />
               <Text style={styles.statusText}>Active & Verified</Text>
             </View>
-          </View>
-
-          <View style={styles.infoRow}>
-            <Text style={styles.infoKey}>Authentication Provider</Text>
-            <Text style={styles.infoVal}>
-              {firebaseConfigured ? "Firebase Auth" : "Campus Demo Auth"}
-            </Text>
-          </View>
-
-          <View style={styles.infoRow}>
-            <Text style={styles.infoKey}>Student Email</Text>
-            <Text style={styles.infoVal}>{user.email || "—"}</Text>
-          </View>
-
-          <View style={styles.infoRow}>
-            <Text style={styles.infoKey}>Phone Number</Text>
-            <Text style={styles.infoVal}>
-              {user.phoneNumber || "Not provided"}
-            </Text>
           </View>
 
           <View style={styles.infoRow}>
@@ -565,28 +546,20 @@ const styles = StyleSheet.create({
 
   avatarBadge: {
     position: "absolute",
-    bottom: -2,
-    right: -2,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#1A3C34",
+    bottom: -4,
+    right: -4,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2.5,
-    borderColor: "#FFFFFF",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
-    elevation: 4,
   },
 
   avatarBadgeIcon: {
-    fontSize: 14,
+    fontSize: 20,
+    color: "#1A3C34",
     textAlign: "center",
     includeFontPadding: false,
-    lineHeight: 18,
+    textShadowColor: "rgba(255, 255, 255, 0.9)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
 
   photoErrorText: {
