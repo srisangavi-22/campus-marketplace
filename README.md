@@ -127,6 +127,6 @@ Android requires Android Studio and a configured Android SDK. The iOS command re
 | --- | --- |
 | **Manivannan Nirmalan (2023/CSC/041)** | Implemented listing creation and management, seller messaging, inventory updates, and sold-out status. Also improved sold-item status and messaging behavior. |
 | **Pathmaraj Gowsihan (2023/CSC/055)** | Improved the UI/UX, layout, listing-card presentation, and mobile/web usability, including saved-listing interaction improvements. |
-| **Sriranganathan Sangavi (2023/CSC/066)** | Implemented saved/favorite listings and Firestore persistence, profile photo upload, automatic initials-based avatars, and consistent navigation bar profile icon styling; coordinated pull-request reviews, conflict resolution, and integration into `main`. |
+| **Sriranganathan Sangavi (2023/CSC/066)** | Implemented saved/favorite listings and Firestore persistence, profile photo upload, automatic initials-based avatars, and consistent navigation bar profile icon styling, coordinated pull-request reviews, conflict resolution, and integration into `main`. |
 | **Manoharan Aboorva (2023/CSC/083)** | Improved authentication and profile management, including sign-in validation. |
 | **Saththiyesvaran Kethursan (2023/CSC/089)** | Contributed price-range filtering, search, category filtering, and custom price validation improvements. |
