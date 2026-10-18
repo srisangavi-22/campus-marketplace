@@ -28,6 +28,7 @@ export type Conversation = {
   id: string;
   memberIds: string[];
   memberNames?: Record<string, string>;
+  memberPhotos?: Record<string, string>;
   lastReadAt?: Record<string, { toMillis?: () => number } | null>;
   clearedAt?: Record<string, { toMillis?: () => number } | null>;
   lastMessage?: string;

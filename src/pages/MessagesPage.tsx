@@ -10,6 +10,7 @@ import {
   updateDoc,
   where,
   FieldPath,
+  getDoc,
 } from "firebase/firestore";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -197,6 +198,7 @@ export function MessagesPage({
                 id: conversationDocument.id,
                 memberIds: Array.isArray(data.memberIds) ? data.memberIds.filter((id): id is string => typeof id === "string") : [],
                 memberNames: data.memberNames,
+                memberPhotos: data.memberPhotos,
                 lastReadAt: data.lastReadAt,
                 clearedAt: data.clearedAt,
                 lastMessage: typeof data.lastMessage === "string" ? data.lastMessage : "",
@@ -400,10 +402,39 @@ function ChatView({
     );
   }, [conversationId, dbReady, onError, clearedAtMillis]);
 
+  const otherId = useMemo(
+    () => conversation?.memberIds.find((memberId) => memberId !== userId),
+    [conversation, userId],
+  );
+
+  const [otherPhoto, setOtherPhoto] = useState<string | null>(
+    (otherId && conversation?.memberPhotos?.[otherId]) || null,
+  );
+
+  useEffect(() => {
+    if (!otherId || !db) return;
+    if (conversation?.memberPhotos?.[otherId]) {
+      setOtherPhoto(conversation.memberPhotos[otherId]);
+      return;
+    }
+    let isMounted = true;
+    getDoc(doc(db, "users", otherId))
+      .then((snap) => {
+        if (!isMounted || !snap.exists()) return;
+        const data = snap.data();
+        const photo =
+          data.customPhotoURL || data.photoURL || data.googlePhotoURL || null;
+        if (photo) setOtherPhoto(photo);
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, [otherId, conversation]);
+
   const otherName = useMemo(() => {
-    const otherId = conversation?.memberIds.find((memberId) => memberId !== userId);
     return (otherId && conversation?.memberNames?.[otherId]) || "Campus student";
-  }, [conversation, userId]);
+  }, [conversation, otherId]);
 
   const sendMessage = async () => {
     const trimmed = text.trim();
@@ -434,8 +465,23 @@ function ChatView({
   return (
     <View style={styles.chatContainer}>
       <View style={styles.chatHeader}>
-        <Pressable onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable>
-        <Text style={styles.chatTitle}>{otherName}</Text>
+        <Pressable onPress={onBack} hitSlop={10} style={styles.backButton}>
+          <Text style={styles.back}>‹</Text>
+        </Pressable>
+        <View style={styles.headerUserSection}>
+          {otherPhoto ? (
+            <Image source={{ uri: otherPhoto }} style={styles.headerAvatar} />
+          ) : (
+            <View style={styles.headerAvatarFallback}>
+              <Text style={styles.headerAvatarFallbackText}>
+                {otherName.slice(0, 1).toUpperCase()}
+              </Text>
+            </View>
+          )}
+          <Text style={styles.chatTitle} numberOfLines={1}>
+            {otherName}
+          </Text>
+        </View>
         <Pressable onPress={() => setClearConfirmVisible(true)} style={styles.clearButton}>
           <Text style={styles.clearButtonText}>Clear chat</Text>
         </Pressable>
@@ -693,9 +739,55 @@ const styles = StyleSheet.create({
   conversationName: { color: "#173C34", fontWeight: "800", fontSize: 14 },
   lastMessage: { color: "#87918C", marginTop: 4, fontSize: 13 },
   chatContainer: { flex: 1, paddingBottom: 92, backgroundColor: "#F8F8F4" },
-  chatHeader: { height: 62, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", backgroundColor: "#FFF", borderBottomWidth: 1, borderBottomColor: "#E8EBE5" },
+  chatHeader: {
+    height: 64,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E8EBE5",
+  },
+  backButton: {
+    paddingRight: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   back: { color: "#1F5D4C", fontSize: 34, lineHeight: 34 },
-  chatTitle: { flex: 1, textAlign: "center", color: "#173C34", fontSize: 17, fontWeight: "800" },
+  headerUserSection: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  headerAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#E5ECE5",
+    marginRight: 10,
+  },
+  headerAvatarFallback: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#EAF1EB",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+  headerAvatarFallbackText: {
+    color: "#1F5D4C",
+    fontWeight: "800",
+    fontSize: 16,
+  },
+  chatTitle: {
+    flex: 1,
+    textAlign: "left",
+    color: "#173C34",
+    fontSize: 16,
+    fontWeight: "800",
+  },
   headerSpacer: { width: 20 },
   clearButton: { paddingVertical: 8, paddingLeft: 8 },
   clearButtonText: { color: "#B3434B", fontSize: 11, fontWeight: "800" },
