@@ -1,4 +1,4 @@
-# Campus Marketplace
+# Campus Marketplace – Group 14
 
 A cross-platform campus marketplace built with React Native and Expo. Students can discover items, publish and manage listings, save favorites, and contact sellers.
 
@@ -6,7 +6,7 @@ A cross-platform campus marketplace built with React Native and Expo. Students c
 
 Campus Marketplace provides a focused place for students to buy and sell items within their campus community. The project was extended from an existing application as a group assignment; it is not a production service.
 
-## Group members
+## Group 14 Members
 
 | Registration No | Group Member Name |
 | --- | --- |
