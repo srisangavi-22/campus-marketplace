@@ -329,18 +329,6 @@ export function ProfilePage({
               onPress={onOpenMyListings}
             />
           ) : null}
-          <Row
-            icon="👤"
-            label="Edit Profile Details"
-            value="Update"
-            onPress={openEditProfile}
-          />
-          <Row
-            icon="📍"
-            label="Campus Meetup Spot"
-            value={meetup}
-            onPress={openEditProfile}
-          />
           {onResetPassword ? (
             <Row
               icon="🔒"

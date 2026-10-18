@@ -68,6 +68,7 @@ import {
   saveStoredSession,
   getDemoAccounts,
   saveDemoAccounts,
+  getUserInitials,
 } from "./authHelpers";
 
 const MAX_PRODUCT_IMAGE_BYTES = 500 * 1024;
@@ -960,18 +961,14 @@ export default function App() {
     if (!user) throw new Error("Please sign in first.");
 
     const previousUser = { ...user };
-    const googlePhoto =
-      user.googlePhotoURL ||
-      auth?.currentUser?.providerData?.find((p) => p.providerId === "google.com")?.photoURL ||
-      null;
-
-    const fallbackPhoto = googlePhoto || null;
+    // Completely clear photo so student's dynamic initials appear in avatar icon
+    const fallbackPhoto = null;
 
     const updatedUser: AppUser = {
       ...user,
       photoURL: fallbackPhoto,
       customPhotoURL: null,
-      googlePhotoURL: googlePhoto,
+      googlePhotoURL: null,
     };
 
     setUser(updatedUser);
@@ -1344,6 +1341,7 @@ export default function App() {
         onAdd={() => setSellOpen(true)}
         unreadMessageCount={unreadMessageState.total}
         savedCount={savedItems.length}
+        user={user}
       />
 
       <ListingDetailsModal
@@ -1413,13 +1411,22 @@ function BottomNav({
   onAdd,
   unreadMessageCount,
   savedCount = 0,
+  user,
 }: {
   tab: Tab;
   onChange: (tab: Tab) => void;
   onAdd: () => void;
   unreadMessageCount: number;
   savedCount?: number;
+  user?: AppUser | null;
 }) {
+  const userName =
+    user?.displayName ||
+    user?.email?.split("@")[0] ||
+    null;
+  const initials = getUserInitials(userName);
+  const hasPhoto = Boolean(user?.photoURL);
+
   return (
     <View style={styles.nav}>
       <NavItem
@@ -1456,9 +1463,72 @@ function BottomNav({
 
       <NavItem
         label="Profile"
-        icon="☺"
         active={tab === "Profile" || tab === "MyListings"}
         onPress={() => onChange("Profile")}
+        customIcon={(color) => {
+          const active = tab === "Profile" || tab === "MyListings";
+          if (hasPhoto && user?.photoURL) {
+            return (
+              <Image
+                source={{ uri: user.photoURL }}
+                style={styles.navProfileImage}
+              />
+            );
+          }
+          if (user) {
+            return (
+              <View
+                style={[
+                  styles.navProfileInitialsCircle,
+                  active && styles.navProfileInitialsCircleActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.navProfileInitialsText,
+                    active && styles.navProfileInitialsTextActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {initials}
+                </Text>
+              </View>
+            );
+          }
+          return (
+            <ProfileUserIcon
+              color={color}
+              active={active}
+            />
+          );
+        }}
+      />
+    </View>
+  );
+}
+
+function ProfileUserIcon({
+  color = "#FFFFFF",
+  active,
+}: {
+  color?: string;
+  active?: boolean;
+}) {
+  return (
+    <View style={styles.navUserIconWrap}>
+      <View
+        style={[
+          styles.navUserHead,
+          { borderColor: color },
+          active && { backgroundColor: color },
+        ]}
+      />
+      <View
+        style={[
+          styles.navUserBody,
+          { borderColor: color },
+          active && { backgroundColor: color },
+        ]}
       />
     </View>
   );
@@ -2086,6 +2156,65 @@ const styles = StyleSheet.create({
     borderTopWidth: 4,
     borderRightWidth: 4,
     borderRightColor: "transparent",
+  },
+
+  navProfileImage: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
+  },
+
+  navProfileInitialsCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    borderWidth: 1.2,
+    borderColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  navProfileInitialsCircleActive: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#FFFFFF",
+  },
+
+  navProfileInitialsText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+  },
+
+  navProfileInitialsTextActive: {
+    color: "#1F5D4C",
+  },
+
+  navUserIconWrap: {
+    width: 22,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  navUserHead: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    borderWidth: 1.8,
+    marginBottom: 1.5,
+  },
+
+  navUserBody: {
+    width: 17,
+    height: 8,
+    borderTopLeftRadius: 8.5,
+    borderTopRightRadius: 8.5,
+    borderWidth: 1.8,
+    borderBottomWidth: 0,
   },
 
   backdrop: {

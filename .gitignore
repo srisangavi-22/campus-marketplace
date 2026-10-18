@@ -40,3 +40,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Demo voiceover scripts & generated assets (local presentation only)
+VOICE_OVER_SCRIPT*.md
+*Voiceover_Script*.pdf
+*.pdf
+build_pdf.py

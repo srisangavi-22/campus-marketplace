@@ -24,8 +24,8 @@ Campus Marketplace provides a focused place for students to buy and sell items w
 - **Manage listings:** View, edit, and delete your listings; adjust inventory and record sales. Listings reflect available or sold-out status.
 - **Seller messaging:** Start and continue conversations about listings, with messages synchronized through Firestore.
 - **Saved listings:** Save and remove favorites, and view them on the Saved page. Signed-in users' saved listing IDs are stored in Firestore.
-- **Authentication and profile:** Sign in with email/password or Google, update profile information, and choose a profile photo.
-- **Responsive interface:** Use the same React Native application on the web and on mobile devices.
+- **Authentication and profile:** Sign in with email/password or Google, update profile display name, phone number, and upload profile photos. When no photo is uploaded, a clean initials-based default avatar is displayed.
+- **Responsive interface:** Use the same React Native application on the web and on mobile devices. 
 
 ## Technologies used
 
@@ -94,6 +94,24 @@ npm run start
 
 Scan the QR code with Expo Go (Android) or the Camera app (iOS). Your phone and development computer should be able to reach each other over the network.
 
+> **💡 Mobile Testing & iOS Troubleshooting:**
+> - **If already signed in to Expo Go on your phone:**
+>   - **Option A (Sync Account):** Sign in to the same Expo account in your computer's terminal:
+>     ```bash
+>     npx expo login
+>     npx expo start -c
+>     ```
+>     Once logged in, open the Expo Go app on your phone; the project will appear automatically under **Recently in Development** without needing to scan a QR code.
+>   - **Option B (Guest Mode):** In Expo Go on your phone, go to **Settings (⚙️)** -> tap **Sign Out**. Then scan the QR code using your phone camera.
+> - **Cache & Bundler Issues:** If you encounter `Unable to deserialize cloned data` or cache errors, always start Expo with cache cleared:
+>   ```bash
+>   npx expo start -c
+>   ```
+> - **Network / Tunneling:** If your phone and PC cannot see each other on local Wi-Fi, connect both to your phone's personal hotspot, or install `@expo/ngrok` and run with tunnel mode:
+>   ```bash
+>   npx expo start --tunnel -c
+>   ```
+
 **Native emulators**
 
 ```bash
@@ -110,5 +128,5 @@ Android requires Android Studio and a configured Android SDK. The iOS command re
 | **Manivannan Nirmalan (2023/CSC/041)** | Implemented listing creation and management, seller messaging, inventory updates, and sold-out status. Also improved sold-item status and messaging behavior. |
 | **Pathmaraj Gowsihan (2023/CSC/055)** | Improved the UI/UX, layout, listing-card presentation, and mobile/web usability, including saved-listing interaction improvements. |
 | **Sriranganathan Sangavi (2023/CSC/066)** | Implemented saved/favorite listings and Firestore persistence; coordinated pull-request reviews, conflict resolution, and integration into `main`. |
-| **Manoharan Aboorva (2023/CSC/083)** | Improved authentication and profile management, including sign-in validation. |
+| **Manoharan Aboorva (2023/CSC/083)** | Improved authentication and profile management, including sign-in validation, profile photo upload, automatic initials-based avatars, and consistent navigation bar profile icon styling. |
 | **Saththiyesvaran Kethursan (2023/CSC/089)** | Contributed price-range filtering, search, category filtering, and custom price validation improvements. |
