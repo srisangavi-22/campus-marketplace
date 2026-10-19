@@ -282,6 +282,8 @@ export default function App() {
   const [deletingListing, setDeletingListing] = useState<Listing | null>(null);
   const [messageConversationId, setMessageConversationId] = useState<string | null>(null);
   const [messagesResetKey, setMessagesResetKey] = useState(0);
+  const [exploreScrollTrigger, setExploreScrollTrigger] = useState(0);
+  const [isInsideChat, setIsInsideChat] = useState(false);
   const pendingSavedIds = useRef(new Set<string>());
   const [meetup, setMeetup] = useState(
     user?.meetupPreference || user?.campus || "North Campus",
@@ -1111,6 +1113,7 @@ export default function App() {
       });
       setSelectedListing(null);
       setMessageConversationId(conversationId);
+      setIsInsideChat(true);
       setTab("Messages");
     } catch (error) {
       logAuthError("Opening seller conversation", error);
@@ -1286,6 +1289,7 @@ export default function App() {
           userDisplayName={
             user?.displayName || user?.email?.split("@")[0] || null
           }
+          scrollToTopTrigger={exploreScrollTrigger}
           onQueryChange={setQuery}
           onCategoryChange={setCategory}
           onSave={(listingId) => {
@@ -1314,6 +1318,10 @@ export default function App() {
           onBrowse={() => setTab("Explore")}
           onBackToInbox={() => {
             setMessageConversationId(null);
+            setIsInsideChat(false);
+          }}
+          onActiveConversationChange={(activeId) => {
+            setIsInsideChat(Boolean(activeId));
           }}
         />
       )}
@@ -1335,20 +1343,27 @@ export default function App() {
         />
       )}
 
-      <BottomNav
-        tab={tab}
-        onChange={(nextTab) => {
-          if (nextTab === "Messages") {
-            setMessageConversationId(null);
-            setMessagesResetKey((prev) => prev + 1);
-          }
-          setTab(nextTab);
-        }}
-        onAdd={() => setSellOpen(true)}
-        unreadMessageCount={unreadMessageState.total}
-        savedCount={savedItems.length}
-        user={user}
-      />
+      {!(tab === "Messages" && isInsideChat) && (
+        <BottomNav
+          tab={tab}
+          onChange={(nextTab) => {
+            if (nextTab === "Explore" && tab === "Explore") {
+              setExploreScrollTrigger((prev) => prev + 1);
+              return;
+            }
+            if (nextTab === "Messages") {
+              setMessageConversationId(null);
+              setIsInsideChat(false);
+              setMessagesResetKey((prev) => prev + 1);
+            }
+            setTab(nextTab);
+          }}
+          onAdd={() => setSellOpen(true)}
+          unreadMessageCount={unreadMessageState.total}
+          savedCount={savedItems.length}
+          user={user}
+        />
+      )}
 
       <ListingDetailsModal
         item={selectedListing}

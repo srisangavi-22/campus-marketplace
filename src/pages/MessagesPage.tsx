@@ -163,6 +163,7 @@ export function MessagesPage({
   onBackToInbox,
   unreadByConversation,
   latestByConversation,
+  onActiveConversationChange,
 }: {
   userId: string | null;
   initialConversationId: string | null;
@@ -170,6 +171,7 @@ export function MessagesPage({
   onBackToInbox: () => void;
   unreadByConversation: Record<string, number>;
   latestByConversation: Record<string, InboxMessageSummary>;
+  onActiveConversationChange?: (activeId: string | null) => void;
 }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(initialConversationId);
@@ -178,6 +180,10 @@ export function MessagesPage({
   useEffect(() => {
     setActiveConversationId(initialConversationId);
   }, [initialConversationId]);
+
+  useEffect(() => {
+    onActiveConversationChange?.(activeConversationId);
+  }, [activeConversationId, onActiveConversationChange]);
 
   useEffect(() => {
     if (!db || !userId) {
@@ -747,7 +753,7 @@ const styles = StyleSheet.create({
   conversationBody: { flex: 1, marginLeft: 12 },
   conversationName: { color: "#173C34", fontWeight: "800", fontSize: 14 },
   lastMessage: { color: "#87918C", marginTop: 4, fontSize: 13 },
-  chatContainer: { flex: 1, paddingBottom: 92, backgroundColor: "#F8F8F4" },
+  chatContainer: { flex: 1, paddingBottom: 0, backgroundColor: "#F8F8F4" },
   chatHeader: {
     height: 64,
     paddingHorizontal: 16,
